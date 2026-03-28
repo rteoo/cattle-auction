@@ -9,7 +9,7 @@ A Python CLI pipeline that extracts structured lot data from Brazilian cattle au
 ## Setup
 
 ```bash
-uv sync --no-install-project          # base deps (groq, paddleocr, etc.)
+uv sync --no-install-project          # base deps (groq, rapidocr, etc.)
 uv sync --extra local --no-install-project  # + mlx-whisper (Apple Silicon only)
 ```
 
@@ -73,7 +73,7 @@ Each stage writes a checkpoint file. On rerun, if the file exists the stage is s
 - `pipeline/downloader.py` — yt-dlp CLI download (uses `--remote-components ejs:github` + Deno for YouTube n-challenge) + ffmpeg audio extraction
 - `pipeline/transcriber.py` — three backends: Groq API (default, chunk progress bar), MLX Whisper (thread + spinner), whisper.cpp (Popen + parse `--print-progress` stderr); Groq converts audio to 32kbps MP3 and splits into 15-min chunks when file exceeds 20 MB
 - `pipeline/screenshotter.py` — ffmpeg frame extraction every N seconds; streams `-progress pipe:1` to show a Rich progress bar
-- `pipeline/ocr.py` — PaddleOCR (PT-BR) on all screenshots with Rich progress bar; `use_angle_cls=False` for speed since auction overlays are horizontal
+- `pipeline/ocr.py` — RapidOCR (ONNX-based) on all screenshots with Rich progress bar; no native PaddlePaddle dependency
 - `pipeline/aggregator.py` — merges transcript segments + OCR into 10-minute overlapping windows
 - `pipeline/extractor.py` — sends windows to LLM, parses JSON response, deduplicates by lot_number; supports model aliases via `_MODEL_ALIASES`
 - `models/lot.py` — Pydantic models: `Lot`, `AuctionResult`

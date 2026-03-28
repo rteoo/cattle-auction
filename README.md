@@ -7,7 +7,7 @@ Extracts structured lot data from Brazilian cattle auction YouTube videos.
 1. **Download** — fetches the video with `yt-dlp` and extracts a 16kHz mono audio track
 2. **Transcribe** — transcribes audio in PT-BR using MLX Whisper (local, Metal), whisper.cpp (local, Metal), or Groq API (cloud)
 3. **Screenshots** — extracts one frame every 30 seconds with `ffmpeg`, with a live progress bar
-4. **OCR** — reads text visible on screen using PaddleOCR (PT-BR), with a live progress bar
+4. **OCR** — reads text visible on screen using RapidOCR (ONNX-based, fast, no native deps), with a live progress bar
 5. **Aggregate** — merges transcript segments and OCR results into 10-minute windows
 6. **Extract** — sends each window to an LLM with a structured PT-BR prompt to pull out lot data
 7. **Output** — saves `lots_<video_id>.json` and prints a summary table

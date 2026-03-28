@@ -7,12 +7,6 @@ from rich.progress import BarColumn, Progress, TaskProgressColumn, TextColumn, T
 
 from pipeline.screenshotter import Screenshot
 
-# Suppress PaddlePaddle / PaddleOCR verbose logging and connectivity banner
-import os
-os.environ.setdefault("PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK", "True")
-logging.disable(logging.DEBUG)
-warnings.filterwarnings("ignore", message=".*pin_memory.*")
-
 
 def run_ocr(
     screenshots: list[Screenshot],
@@ -20,19 +14,17 @@ def run_ocr(
     confidence_threshold: float = 0.4,
 ) -> dict[str, list[str]]:
     """
-    Run PaddleOCR on all screenshots. Returns dict mapping timestamp_str → [text lines].
+    Run RapidOCR on all screenshots. Returns dict mapping timestamp_str → [text lines].
     Saves/loads ocr_results.json for checkpointing.
     """
     if output_path.exists():
         print(f"  OCR results already exist, loading from cache.")
         return json.loads(output_path.read_text())
 
-    from paddleocr import PaddleOCR
+    from rapidocr_onnxruntime import RapidOCR
 
-    print("  Loading PaddleOCR (pt)...")
-    # use_angle_cls=False: auction overlays are horizontal, skip rotation detection
-    # (show_log was removed in PaddleOCR 2.8; logging is suppressed via logging.disable above)
-    reader = PaddleOCR(lang="pt", use_angle_cls=False)
+    print("  Loading RapidOCR...")
+    reader = RapidOCR()
 
     results: dict[str, list[str]] = {}
     total = len(screenshots)
@@ -54,13 +46,13 @@ def run_ocr(
                 results[shot.timestamp_str] = []
                 continue
 
-            raw = reader.ocr(str(shot.path), cls=False)
+            raw, _ = reader(str(shot.path))
 
             lines = []
-            # raw is [[bbox, [text, confidence]], ...] or [None] when no text found
-            if raw and raw[0]:
-                for detection in raw[0]:
-                    text, confidence = detection[1]
+            # raw is [[box, text, confidence], ...] or None when no text found
+            if raw:
+                for detection in raw:
+                    text, confidence = detection[1], detection[2]
                     if confidence >= confidence_threshold:
                         lines.append(text)
 

@@ -5,7 +5,6 @@ description = "Extract lot data from Brazilian cattle auction videos"
 requires-python = ">=3.11"
 dependencies = [
     "yt-dlp>=2024.0.0",
-    "paddleocr>=2.8.0",
     "anthropic>=0.40.0",
     "openai>=1.0.0",
     "groq>=0.11.0",
@@ -13,6 +12,7 @@ dependencies = [
     "rich>=13.0.0",
     "click>=8.0.0",
     "python-dotenv>=1.0.0",
+    "rapidocr-onnxruntime>=1.4.4",
 ]
 
 [project.optional-dependencies]
