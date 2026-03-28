@@ -155,6 +155,24 @@ All files are written to `output/<video_id>/`:
 | OCR (~600 frames) | ~5–10 min | same |
 | LLM extraction (~30 windows) | ~3–8 min | same |
 
+## Testing
+
+The project includes a comprehensive unit test suite with 77 tests covering:
+
+- **Model validation** — `Lot` and `AuctionResult` data validation, Brazilian number format coercion, required field checks
+- **LLM response parsing** — JSON extraction with extra-text tolerance, lot merging, sold field detection
+- **Data aggregation** — Window overlap logic, transcript + OCR merging, empty window placeholders
+- **Summary statistics** — Animal counts by sex, top categories, average prices, sold/unsold tracking
+
+Run tests:
+
+```bash
+uv run pytest tests/ -v              # Run all tests with verbose output
+uv run pytest tests/test_lot_model.py -v  # Run model tests only
+```
+
+All tests are pure unit tests with no external dependencies (no API calls, file I/O, or fixtures).
+
 ## License
 
 This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.

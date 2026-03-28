@@ -118,6 +118,30 @@ class Lot(BaseModel):
     notes: str | None
 ```
 
+## Testing
+
+### Test suite structure
+
+- `tests/test_lot_model.py` — 21 tests for `Lot` + `AuctionResult` model validation, Brazilian number format coercion, `sold` field, required fields
+- `tests/test_extractor.py` — 18 tests for `_validate_lots()`, `_parse_response()` (extra-text tolerance), `_merge()` (first-non-null-wins, sold=False preservation)
+- `tests/test_aggregator.py` — 18 tests for `_fmt()`, `_parse_ts()` round-trip, `aggregate()` window logic (overlap, OCR, empty placeholders)
+- `tests/test_summary.py` — 20 tests for `_calculate_summary()` (totals, sex counts, top categories, avg prices, sold counts)
+
+### Running tests
+
+```bash
+uv run pytest tests/ -v                # All tests (77 total)
+uv run pytest tests/test_lot_model.py  # Model validation only
+uv run pytest tests/ -k test_br_       # Specific pattern (e.g., BR number format tests)
+```
+
+All tests are pure unit tests — no external API calls, file I/O, or fixture dependencies. They validate the core data transformation logic:
+- Brazilian number format parsing (3.100 = 3100.00, not 3.10)
+- Quantity vs lot number disambiguation
+- Sold status detection from LLM responses
+- Window aggregation with overlap preservation
+- Summary statistics computation
+
 ## License
 
 This project is released under the MIT License. Dependencies are compatible (MIT, Apache 2.0, BSD).

@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-03-28
+
+### Added
+
+- **Unit Test Suite** — Comprehensive test coverage for pure-logic layers with 77 tests:
+  - `tests/test_lot_model.py` (21 tests) — Validates `Lot` and `AuctionResult` models, including Brazilian number format coercion (3.100 = 3100.00), `sold` field handling, and required field validation
+  - `tests/test_extractor.py` (18 tests) — Tests `_validate_lots`, `_parse_response` (with extra-text tolerance), and `_merge` (first-non-null-wins with sold=False preservation)
+  - `tests/test_aggregator.py` (18 tests) — Tests `_fmt`, `_parse_ts` (round-trip), and `aggregate` window logic (overlap, OCR inclusion, empty placeholder)
+  - `tests/test_summary.py` (20 tests) — Tests `_calculate_summary` (totals, sex animal counts, top categories, average prices excluding nulls/zero, sold/unsold counts)
+- **pytest Integration** — Added `pytest` as a dev dependency via `uv add --dev pytest`
+
+### Technical Details
+
+- All tests are pure unit tests — no external API calls, file I/O, or fixtures required
+- Tests validate data transformation logic: model validation, LLM response parsing, window aggregation, and summary statistics
+- Run all tests with `uv run pytest tests/ -v`
+- Tests ensure data quality rules (BR number format, quantity vs lot number, sold status detection) are correctly validated
+
 ## [1.1.1] - 2026-03-28
 
 ### Added
@@ -84,6 +102,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - rapidocr for text recognition
 - **Estimated Processing Time**: ~30-60 minutes for a 5-hour video on Apple Silicon M2 (varies by backend and configuration)
 
+[1.2.0]: https://github.com/TeodoroRodrigo/cattle-auction/releases/tag/v1.2.0
 [1.1.1]: https://github.com/TeodoroRodrigo/cattle-auction/releases/tag/v1.1.1
 [1.1.0]: https://github.com/TeodoroRodrigo/cattle-auction/releases/tag/v1.1.0
 [1.0.0]: https://github.com/TeodoroRodrigo/cattle-auction/releases/tag/v1.0.0
