@@ -125,6 +125,7 @@ All files are written to `output/<video_id>/`:
   "breed": "Nelore",
   "unit_price": 3200.00,
   "total_price": null,
+  "sold": true,
   "timestamp_start": "01:24:35",
   "notes": null
 }

@@ -11,6 +11,7 @@ class Lot(BaseModel):
     breed: str  # Nelore, Anelorado, Mestiço, Cruzado, etc.
     unit_price: float | None = None
     total_price: float | None = None
+    sold: bool | None = None  # True = arrematado, False = não vendido/retirado, None = indefinido
     timestamp_start: str | None = None  # HH:MM:SS
     notes: str | None = None
 

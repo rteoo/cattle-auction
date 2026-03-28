@@ -9,17 +9,38 @@ Para cada lote, retorne um objeto JSON com exatamente estes campos:
 - "num_animals": quantidade de animais (inteiro, obrigatório)
 - "age_months": idade em meses (inteiro ou null — use null se não informado)
 - "breed": raça ou grau de sangue — ex: "Nelore", "Anelorado", "Mestiço", "Cruzado", "Gir", "Guzerá", "Brahman", "Tabapuã", "Simental", "Angus" (string, obrigatório — use "Sem Raça Definida" se não identificado)
-- "unit_price": preço por cabeça em reais como número sem símbolo (float ou null)
-- "total_price": preço total do lote em reais como número (float ou null)
+- "unit_price": preço por cabeça em reais como número decimal (float ou null — null se não vendido ou não informado)
+- "total_price": preço total do lote em reais como número decimal (float ou null)
+- "sold": se o lote foi arrematado — true se vendido, false se retirado/não vendido/sem lance suficiente, null se não foi possível determinar
 - "timestamp_start": timestamp no formato "HH:MM:SS" de quando o lote foi anunciado (string ou null)
 - "notes": observações relevantes como condição corporal, prenhez, manejo sanitário, pelagem (string ou null)
 
 REGRAS IMPORTANTES:
 1. Retorne APENAS um array JSON válido, sem nenhum texto antes ou depois
 2. Se não houver lotes neste segmento, retorne []
-3. Preços devem ser números — ex: 2500.00 (não "R$ 2.500,00")
+3. Preços devem ser números decimais com ponto — ex: 2500.00 (não "R$ 2.500,00")
 4. Se o preço for por arroba (@), coloque em "notes" e deixe unit_price como null
 5. Sinais como "macho" = lote de machos, "fêmea" = lote de fêmeas
 6. "Anelorado" = animal com alto grau de sangue Nelore mas não puro
 7. Quando o lote ainda estiver sendo arrematado (lances em aberto), unit_price pode ser o lance final anunciado
 8. A quantidade "X cabeças" indica num_animals
+
+ATENÇÃO — FORMATO DE NÚMEROS BRASILEIROS:
+- No Brasil, o ponto (.) é separador de MILHAR e a vírgula (,) é separador DECIMAL
+- "3.100" = três mil e cem = 3100.00 (NÃO é 3.10!)
+- "3.100,00" = 3100.00
+- "2.500" = dois mil e quinhentos = 2500.00
+- "1.800,50" = 1800.50
+- Sempre converta para float com ponto decimal: "3.100" → 3100.00, "3.100,00" → 3100.00
+
+ATENÇÃO — QUANTIDADE DE ANIMAIS:
+- num_animals é a QUANTIDADE de animais do lote (tipicamente entre 1 e 100)
+- num_animals NUNCA deve ser igual ao número do lote
+- Se ouvir "lote 135, 3 novilhas", num_animals = 3, lot_number = 135
+- Não confunda o número do lote com a quantidade de animais
+
+ATENÇÃO — LOTES NÃO VENDIDOS:
+- Se o lote for retirado, não alcançar lance mínimo, ou não houver compradores, marque sold = false
+- Expressões como "retirado", "sem lance", "passou", "não arrematado" indicam sold = false
+- Se o lote for vendido com preço final anunciado, marque sold = true
+- Se não for possível determinar, use sold = null

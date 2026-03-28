@@ -208,11 +208,18 @@ def _print_table(lots) -> None:
     table.add_column("Idade")
     table.add_column("Raça")
     table.add_column("Preço/cab (R$)", justify="right")
+    table.add_column("Vendido")
     table.add_column("Timestamp")
 
     for lot in lots:
         age = f"{lot.age_months}m" if lot.age_months else "-"
         price = f"{lot.unit_price:,.2f}" if lot.unit_price else "-"
+        if lot.sold is True:
+            sold = "[green]✓[/green]"
+        elif lot.sold is False:
+            sold = "[red]✗[/red]"
+        else:
+            sold = "-"
         table.add_row(
             str(lot.lot_number),
             lot.sex,
@@ -221,6 +228,7 @@ def _print_table(lots) -> None:
             age,
             lot.breed,
             price,
+            sold,
             lot.timestamp_start or "-",
         )
 
