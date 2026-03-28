@@ -1,0 +1,27 @@
+[project]
+name = "cattle-auction"
+version = "0.1.0"
+description = "Extract lot data from Brazilian cattle auction videos"
+requires-python = ">=3.11"
+dependencies = [
+    "yt-dlp>=2024.0.0",
+    "paddleocr>=2.8.0",
+    "anthropic>=0.40.0",
+    "openai>=1.0.0",
+    "groq>=0.11.0",
+    "pydantic>=2.0.0",
+    "rich>=13.0.0",
+    "click>=8.0.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+# Apple Silicon only — install with: uv sync --extra local
+local = ["mlx-whisper>=0.4.0"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["pipeline", "models"]
