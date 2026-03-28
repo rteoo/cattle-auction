@@ -80,7 +80,25 @@ PROMPTS_DIR = Path(__file__).parent / "prompts"
     default=False,
     help="Ignore cached stage outputs and rerun everything.",
 )
-def cli(url, provider, model, output_dir, transcriber, whisper_model, cpp_model, screenshot_interval, no_resume):
+@click.option(
+    "--metadata/--no-metadata",
+    "show_metadata",
+    default=True,
+    help="Display auction metadata (date, city, auctioneer, farm, type).",
+)
+@click.option(
+    "--summary/--no-summary",
+    "show_summary",
+    default=True,
+    help="Display summary statistics (totals, averages, counts by category).",
+)
+@click.option(
+    "--table/--no-table",
+    "show_table",
+    default=True,
+    help="Display full table of all lots with detailed information.",
+)
+def cli(url, provider, model, output_dir, transcriber, whisper_model, cpp_model, screenshot_interval, no_resume, show_metadata, show_summary, show_table):
     """Extract lot data from a Brazilian cattle auction YouTube video."""
     model = model or extractor.default_model(provider)
 
@@ -177,7 +195,7 @@ def cli(url, provider, model, output_dir, transcriber, whisper_model, cpp_model,
     )
 
     console.rule("[bold green]Done")
-    if metadata.get("date") or metadata.get("city") or metadata.get("auctioneer"):
+    if show_metadata and (metadata.get("date") or metadata.get("city") or metadata.get("auctioneer")):
         console.print(f"  Data:       {metadata.get('date') or '-'}")
         console.print(f"  Cidade:     {metadata.get('city') or '-'}")
         console.print(f"  Leiloeiro:  {metadata.get('auctioneer') or '-'}")
@@ -192,7 +210,92 @@ def cli(url, provider, model, output_dir, transcriber, whisper_model, cpp_model,
     console.print(f"  Output: [cyan]{run_dir}/[/cyan]")
     console.print()
 
-    _print_table(lots)
+    if show_summary:
+        summary_stats = _calculate_summary(lots)
+        _print_summary(summary_stats)
+
+    if show_table:
+        _print_table(lots)
+
+
+def _calculate_summary(lots: list) -> dict:
+    """Calculate summary statistics from lots."""
+    if not lots:
+        return {}
+
+    from collections import Counter
+
+    total_lots = len(lots)
+    total_animals = sum(lot.num_animals for lot in lots)
+
+    # Count by sex
+    sex_counts = Counter(lot.sex for lot in lots if lot.num_animals)
+    sex_animals = {}
+    for sex in ["macho", "fêmea", "misto"]:
+        animals = sum(lot.num_animals for lot in lots if lot.sex == sex)
+        if animals > 0:
+            sex_animals[sex] = animals
+
+    # Count by category (top 5)
+    category_animals = Counter()
+    for lot in lots:
+        category_animals[lot.category] += lot.num_animals
+    top_categories = dict(category_animals.most_common(5))
+
+    # Price statistics
+    prices = [lot.unit_price for lot in lots if lot.unit_price and lot.unit_price > 0]
+    avg_price = sum(prices) / len(prices) if prices else 0
+
+    # Price by sex
+    sex_prices = {}
+    for sex in ["macho", "fêmea", "misto"]:
+        sex_price_list = [lot.unit_price for lot in lots if lot.sex == sex and lot.unit_price and lot.unit_price > 0]
+        if sex_price_list:
+            sex_prices[sex] = sum(sex_price_list) / len(sex_price_list)
+
+    # Sold status
+    sold = sum(1 for lot in lots if lot.sold is True)
+    not_sold = sum(1 for lot in lots if lot.sold is False)
+
+    return {
+        "total_lots": total_lots,
+        "total_animals": total_animals,
+        "sex_animals": sex_animals,
+        "top_categories": top_categories,
+        "avg_price": avg_price,
+        "sex_prices": sex_prices,
+        "sold": sold,
+        "not_sold": not_sold,
+    }
+
+
+def _print_summary(summary: dict) -> None:
+    """Print summary statistics."""
+    if not summary:
+        return
+
+    console.print("[bold cyan]Summary[/bold cyan]")
+    console.print(f"  Lots: {summary['total_lots']} | Animals: {summary['total_animals']}")
+
+    if summary.get("sex_animals"):
+        sex_str = " | ".join(f"{sex.title()}: {count}" for sex, count in summary["sex_animals"].items())
+        console.print(f"  By sex: {sex_str}")
+
+    if summary.get("top_categories"):
+        cats_str = " | ".join(f"{cat}: {count}" for cat, count in summary["top_categories"].items())
+        console.print(f"  Top categories: {cats_str}")
+
+    if summary.get("avg_price"):
+        console.print(f"  Average price: R$ {summary['avg_price']:,.2f}")
+
+    if summary.get("sex_prices"):
+        price_str = " | ".join(f"{sex.title()}: R$ {price:,.2f}" for sex, price in summary["sex_prices"].items())
+        console.print(f"  Avg price by sex: {price_str}")
+
+    if summary.get("sold") or summary.get("not_sold"):
+        console.print(f"  Sold: {summary.get('sold', 0)} | Not sold: {summary.get('not_sold', 0)}")
+
+    console.print()
 
 
 def _stage(num: str, name: str) -> None:
