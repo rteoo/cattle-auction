@@ -13,6 +13,7 @@ dependencies = [
     "click>=8.0.0",
     "python-dotenv>=1.0.0",
     "rapidocr-onnxruntime>=1.4.4",
+    "opencv-python-headless>=4.5",
 ]
 
 [project.optional-dependencies]
@@ -25,3 +26,12 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["pipeline", "models"]
+
+[tool.uv]
+# rapidocr-onnxruntime depends on opencv-python, but opencv-python-headless
+# is a compatible drop-in that avoids GUI lib conflicts on macOS.
+# This override tells uv to satisfy opencv-python requirements with
+# opencv-python-headless instead.
+constraint-dependencies = [
+    "opencv-python-headless>=4.5",
+]
