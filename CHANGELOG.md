@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] - 2026-03-28
+
+### Added
+
+- **Auction Metadata Extraction** — New stage 6/6 extracts event-level data: date, city, auctioneer name, farm/expositor, auction type (corte/reprodução/elite), and additional notes. Scans first 3 windows via dedicated PT-BR prompt.
+- **Sold Status Field** — Each lot now has `sold: bool | None` to indicate if arrematado (true), retirado/não vendido (false), or undefined (null). Displayed as ✓/✗/- in summary table.
+- **Data Quality Rules** — Enhanced prompt to fix common extraction errors:
+  - Brazilian number format clarification (3.100 = 3100.00, not 3.10)
+  - Quantity vs lot number confusion (lots 135/136 style errors)
+  - Detection of unsold lots from auction language
+
+### Fixed
+
+- Price parsing for Portuguese format (thousand separator as period)
+- Lot number / animal quantity confusion in LLM responses
+- Missing status tracking for withdrawn/unsold lots
+
 ## [1.1.0] - 2026-03-28
 
 ### Changed
@@ -67,5 +84,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - rapidocr for text recognition
 - **Estimated Processing Time**: ~30-60 minutes for a 5-hour video on Apple Silicon M2 (varies by backend and configuration)
 
+[1.1.1]: https://github.com/TeodoroRodrigo/cattle-auction/releases/tag/v1.1.1
 [1.1.0]: https://github.com/TeodoroRodrigo/cattle-auction/releases/tag/v1.1.0
 [1.0.0]: https://github.com/TeodoroRodrigo/cattle-auction/releases/tag/v1.0.0

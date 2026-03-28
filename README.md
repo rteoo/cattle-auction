@@ -9,9 +9,9 @@ Extracts structured lot data from Brazilian cattle auction YouTube videos.
 3. **Screenshots** — extracts one frame every 30 seconds with `ffmpeg`, with a live progress bar
 4. **OCR** — reads text visible on screen using RapidOCR (ONNX-based, fast, no native deps), with a live progress bar
 5. **Aggregate** — merges transcript segments and OCR results into 10-minute windows
-6. **Extract** — sends each window to an LLM with a structured PT-BR prompt to pull out lot data
-7. **Metadata** — extracts auction-level info (date, city, auctioneer, farm, type) from the first windows
-8. **Output** — saves `lots_<video_id>.json` and prints a summary table
+6. **Extract lots** — sends each window to an LLM with a structured PT-BR prompt to pull out lot data (number, sex, category, count, breed, price, sold status)
+7. **Extract metadata** — scans the first windows to extract auction-level info: date, city, auctioneer, farm, auction type
+8. **Output** — saves `lots_<video_id>.json`, `metadata_<video_id>.json`, and prints a summary table
 
 Each stage is checkpointed. Interrupted runs resume automatically from where they left off.
 
