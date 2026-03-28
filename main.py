@@ -47,7 +47,7 @@ PROMPTS_DIR = Path(__file__).parent / "prompts"
 @click.option(
     "--transcriber",
     type=click.Choice(["mlx", "cpp", "groq"]),
-    default="mlx",
+    default="groq",
     show_default=True,
     help=(
         "Transcription backend. "

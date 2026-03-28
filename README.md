@@ -69,7 +69,7 @@ whisper-cpp-download-ggml-model medium
 
 | Flag | Default | Description |
 |---|---|---|
-| `--transcriber` | `mlx` | Transcription backend: `mlx`, `cpp`, or `groq` |
+| `--transcriber` | `groq` | Transcription backend: `mlx`, `cpp`, or `groq` |
 | `--whisper-model` | `medium` | Model size for mlx/cpp: `tiny` / `base` / `small` / `medium` / `large-v3` |
 | `--cpp-model` | auto | Path to ggml model file (whisper.cpp only) |
 | `--provider` | `openai` | LLM provider: `openai`, `claude`, or `openrouter` |
@@ -81,11 +81,11 @@ whisper-cpp-download-ggml-model medium
 ### Examples
 
 ```bash
-# Default: MLX transcription + OpenAI gpt-4o-mini extraction
+# Default: Groq transcription + OpenAI gpt-4o-mini extraction
 uv run python main.py "https://www.youtube.com/watch?v=..."
 
-# Groq transcription (~$0.20 for 5h, much faster)
-uv run python main.py "https://www.youtube.com/watch?v=..." --transcriber groq
+# Local MLX transcription (Apple Silicon only, requires --extra local)
+uv run python main.py "https://www.youtube.com/watch?v=..." --transcriber mlx
 
 # OpenRouter with Gemini (alias)
 uv run python main.py "https://www.youtube.com/watch?v=..." \

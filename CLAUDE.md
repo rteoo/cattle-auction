@@ -32,7 +32,7 @@ uv run python main.py <youtube_url> [OPTIONS]
 #   --provider      openai|claude|openrouter   (default: openai)
 #   --model         model name or alias        (default: gpt-4o-mini / claude-sonnet-4-6 / google/gemini-2.5-flash-lite-preview-09-2025)
 #                   alias: gemini-2.5-flash-lite → google/gemini-2.5-flash-lite-preview-09-2025
-#   --transcriber   mlx|cpp|groq               (default: mlx)
+#   --transcriber   mlx|cpp|groq               (default: groq)
 #   --whisper-model medium                     (default: medium, used by mlx and cpp)
 #   --cpp-model     /path/to/ggml.bin          (whisper.cpp only, auto-detected if omitted)
 #   --screenshot-interval 30                   (seconds between frames)
@@ -71,7 +71,7 @@ Each stage writes a checkpoint file. On rerun, if the file exists the stage is s
 
 - `main.py` — CLI entry point, orchestrates stages, renders summary table; loads `.env` via `python-dotenv`
 - `pipeline/downloader.py` — yt-dlp CLI download (uses `--remote-components ejs:github` + Deno for YouTube n-challenge) + ffmpeg audio extraction
-- `pipeline/transcriber.py` — three backends: MLX Whisper (thread + spinner), whisper.cpp (Popen + parse `--print-progress` stderr), Groq API (chunk progress bar); Groq converts audio to 32kbps MP3 and splits into 15-min chunks when file exceeds 20 MB
+- `pipeline/transcriber.py` — three backends: Groq API (default, chunk progress bar), MLX Whisper (thread + spinner), whisper.cpp (Popen + parse `--print-progress` stderr); Groq converts audio to 32kbps MP3 and splits into 15-min chunks when file exceeds 20 MB
 - `pipeline/screenshotter.py` — ffmpeg frame extraction every N seconds; streams `-progress pipe:1` to show a Rich progress bar
 - `pipeline/ocr.py` — PaddleOCR (PT-BR) on all screenshots with Rich progress bar; `use_angle_cls=False` for speed since auction overlays are horizontal
 - `pipeline/aggregator.py` — merges transcript segments + OCR into 10-minute overlapping windows
