@@ -229,7 +229,6 @@ def _calculate_summary(lots: list) -> dict:
     total_animals = sum(lot.num_animals for lot in lots)
 
     # Count by sex
-    sex_counts = Counter(lot.sex for lot in lots if lot.num_animals)
     sex_animals = {}
     for sex in ["macho", "fêmea", "misto"]:
         animals = sum(lot.num_animals for lot in lots if lot.sex == sex)
