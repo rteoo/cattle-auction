@@ -31,6 +31,7 @@ uv run python main.py <youtube_url> [OPTIONS]
 # Options:
 #   --provider      openai|claude|openrouter   (default: openai)
 #   --model         model name or alias        (default: gpt-4o-mini / claude-sonnet-4-6 / google/gemini-2.5-flash-lite-preview-09-2025)
+#                   OpenAI models: gpt-4o-mini, gpt-4.1-nano, gpt-5-nano
 #                   alias: gemini-2.5-flash-lite → google/gemini-2.5-flash-lite-preview-09-2025
 #   --transcriber        mlx|cpp|groq               (default: groq)
 #   --whisper-model      medium                     (default: medium, used by mlx and cpp)

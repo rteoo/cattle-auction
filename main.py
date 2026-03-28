@@ -35,6 +35,7 @@ PROMPTS_DIR = Path(__file__).parent / "prompts"
     help=(
         "Model name or alias. Defaults: gpt-4o-mini (openai), claude-sonnet-4-6 (claude), "
         "google/gemini-2.5-flash-lite-preview-09-2025 (openrouter). "
+        "OpenAI models: gpt-4o-mini, gpt-4.1-nano, gpt-5-nano. "
         "Alias: gemini-2.5-flash-lite."
     ),
 )

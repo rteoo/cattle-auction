@@ -74,7 +74,7 @@ whisper-cpp-download-ggml-model medium
 | `--whisper-model` | `medium` | Model size for mlx/cpp: `tiny` / `base` / `small` / `medium` / `large-v3` |
 | `--cpp-model` | auto | Path to ggml model file (whisper.cpp only) |
 | `--provider` | `openai` | LLM provider: `openai`, `claude`, or `openrouter` |
-| `--model` | `gpt-4o-mini` | Model name or alias (e.g. `gemini-2.5-flash-lite`) |
+| `--model` | `gpt-4o-mini` | Model name or alias. OpenAI: `gpt-4o-mini`, `gpt-4.1-nano`, `gpt-5-nano`. Alias: `gemini-2.5-flash-lite` |
 | `--screenshot-interval` | `30` | Seconds between captured frames |
 | `--output-dir` | `output` | Base directory for all generated files |
 | `--no-resume` | off | Ignore cached stages and rerun everything |
