@@ -78,11 +78,14 @@ whisper-cpp-download-ggml-model medium
 | `--screenshot-interval` | `30` | Seconds between captured frames |
 | `--output-dir` | `output` | Base directory for all generated files |
 | `--no-resume` | off | Ignore cached stages and rerun everything |
+| `--metadata / --no-metadata` | on | Display auction metadata (date, city, auctioneer, farm, type) |
+| `--summary / --no-summary` | on | Display summary statistics (totals, averages, counts by category) |
+| `--table / --no-table` | on | Display full table of all lots with detailed information |
 
 ### Examples
 
 ```bash
-# Default: Groq transcription + OpenAI gpt-4o-mini extraction
+# Default: All outputs (metadata, summary, table)
 uv run python main.py "https://www.youtube.com/watch?v=..."
 
 # Local MLX transcription (Apple Silicon only, requires --extra local)
@@ -94,6 +97,15 @@ uv run python main.py "https://www.youtube.com/watch?v=..." \
 
 # Claude extraction
 uv run python main.py "https://www.youtube.com/watch?v=..." --provider claude
+
+# Show only metadata and summary (no table)
+uv run python main.py "https://www.youtube.com/watch?v=..." --no-table
+
+# Show only the count (metadata/summary, no table)
+uv run python main.py "https://www.youtube.com/watch?v=..." --no-table
+
+# Show only the table (no metadata or summary)
+uv run python main.py "https://www.youtube.com/watch?v=..." --no-metadata --no-summary
 
 # Force full rerun (ignore all cached stages)
 uv run python main.py "https://www.youtube.com/watch?v=..." --no-resume

@@ -32,12 +32,15 @@ uv run python main.py <youtube_url> [OPTIONS]
 #   --provider      openai|claude|openrouter   (default: openai)
 #   --model         model name or alias        (default: gpt-4o-mini / claude-sonnet-4-6 / google/gemini-2.5-flash-lite-preview-09-2025)
 #                   alias: gemini-2.5-flash-lite → google/gemini-2.5-flash-lite-preview-09-2025
-#   --transcriber   mlx|cpp|groq               (default: groq)
-#   --whisper-model medium                     (default: medium, used by mlx and cpp)
-#   --cpp-model     /path/to/ggml.bin          (whisper.cpp only, auto-detected if omitted)
-#   --screenshot-interval 30                   (seconds between frames)
-#   --no-resume                                (ignore cached stage outputs)
-#   --output-dir    output                     (base directory)
+#   --transcriber        mlx|cpp|groq               (default: groq)
+#   --whisper-model      medium                     (default: medium, used by mlx and cpp)
+#   --cpp-model          /path/to/ggml.bin         (whisper.cpp only, auto-detected if omitted)
+#   --screenshot-interval 30                      (seconds between frames)
+#   --no-resume                                   (ignore cached stage outputs)
+#   --metadata / --no-metadata                    (default: on, show auction metadata header)
+#   --summary / --no-summary                      (default: on, show summary statistics)
+#   --table / --no-table                          (default: on, show full lots table)
+#   --output-dir         output                    (base directory)
 ```
 
 ## Transcription backends
