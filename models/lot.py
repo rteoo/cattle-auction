@@ -30,5 +30,11 @@ class Lot(BaseModel):
 class AuctionResult(BaseModel):
     video_url: str
     video_id: str
+    date: str | None = None        # Data do leilão (DD/MM/YYYY)
+    city: str | None = None        # Cidade / município do leilão
+    auctioneer: str | None = None  # Casa leiloeira ou leiloeiro
+    farm: str | None = None        # Nome da fazenda ou expositor principal
+    auction_type: str | None = None  # Tipo: "corte", "reprodução", "misto", etc.
+    notes: str | None = None       # Outras informações relevantes do evento
     total_lots: int
     lots: list[Lot]

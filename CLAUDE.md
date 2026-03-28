@@ -65,6 +65,7 @@ Each stage writes a checkpoint file. On rerun, if the file exists the stage is s
 | Screenshots | `output/<id>/screenshots_<id>.json` + `screenshots_<id>/` dir |
 | OCR | `output/<id>/ocr_results_<id>.json` |
 | Extraction | `output/<id>/lots_<id>.json` |
+| Metadata | `output/<id>/metadata_<id>.json` |
 | Final result | `output/<id>/result_<id>.json` |
 
 ## Architecture
@@ -75,7 +76,7 @@ Each stage writes a checkpoint file. On rerun, if the file exists the stage is s
 - `pipeline/screenshotter.py` — ffmpeg frame extraction every N seconds; streams `-progress pipe:1` to show a Rich progress bar
 - `pipeline/ocr.py` — RapidOCR (ONNX-based) on all screenshots with Rich progress bar; no native PaddlePaddle dependency
 - `pipeline/aggregator.py` — merges transcript segments + OCR into 10-minute overlapping windows
-- `pipeline/extractor.py` — sends windows to LLM, parses JSON response, deduplicates by lot_number; supports model aliases via `_MODEL_ALIASES`
+- `pipeline/extractor.py` — sends windows to LLM, parses JSON response, deduplicates by lot_number; supports model aliases via `_MODEL_ALIASES`; also runs `extract_metadata()` on first 3 windows to extract date/city/auctioneer/farm/type
 - `models/lot.py` — Pydantic models: `Lot`, `AuctionResult`
 - `prompts/extraction.txt` — PT-BR system prompt for lot extraction
 

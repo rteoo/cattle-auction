@@ -6,6 +6,9 @@ from pathlib import Path
 from models.lot import Lot
 from pipeline.aggregator import Window
 
+# Number of windows from the start to scan for auction metadata
+_METADATA_WINDOWS = 3
+
 
 _DEFAULT_MODELS = {
     "claude": "claude-sonnet-4-6",
@@ -168,6 +171,41 @@ def _save(lots: list[Lot], path: Path) -> None:
 def _load(path: Path) -> list[Lot]:
     data = json.loads(path.read_text())
     return [Lot(**d) for d in data]
+
+
+def extract_metadata(
+    windows: list[Window],
+    client: LLMClient,
+    prompt_path: Path,
+    output_path: Path,
+) -> dict:
+    """Extract auction-level metadata (date, city, auctioneer, etc.) from the first windows."""
+    if output_path.exists():
+        print(f"  Auction metadata already extracted, loading from cache.")
+        return json.loads(output_path.read_text())
+
+    system_prompt = prompt_path.read_text(encoding="utf-8")
+
+    # Combine first N windows for metadata context
+    combined = "\n\n".join(
+        f"[{w.label}]\n{w.combined_text}" for w in windows[:_METADATA_WINDOWS]
+    )
+
+    try:
+        response = client.complete(system_prompt, combined)
+        text = response.strip()
+        # Tolerate extra text around the JSON object
+        match = re.search(r"\{.*\}", text, re.DOTALL)
+        if match:
+            metadata = json.loads(match.group())
+        else:
+            metadata = json.loads(text)
+    except Exception as e:
+        print(f"  WARNING: Metadata extraction failed: {e}")
+        metadata = {}
+
+    output_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2))
+    return metadata
 
 
 def default_model(provider: str) -> str:

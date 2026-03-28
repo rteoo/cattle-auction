@@ -98,13 +98,13 @@ def cli(url, provider, model, output_dir, transcriber, whisper_model, cpp_model,
         _clear_cache(run_dir, video_id)
 
     # ── Stage 1: Download ────────────────────────────────────────────────
-    _stage("1/5", "Download")
+    _stage("1/6", "Download")
     t0 = time.time()
     video_path, audio_path = downloader.download(url, run_dir, video_id)
     _done(t0)
 
     # ── Stage 2: Transcribe ──────────────────────────────────────────────
-    _stage("2/5", f"Transcribe audio ({transcriber})")
+    _stage("2/6", f"Transcribe audio ({transcriber})")
     t0 = time.time()
     segments = transcriber_mod.transcribe(
         audio_path,
@@ -116,7 +116,7 @@ def cli(url, provider, model, output_dir, transcriber, whisper_model, cpp_model,
     _done(t0)
 
     # ── Stage 3: Screenshots ─────────────────────────────────────────────
-    _stage("3/5", f"Extract screenshots (every {screenshot_interval}s)")
+    _stage("3/6", f"Extract screenshots (every {screenshot_interval}s)")
     t0 = time.time()
     shots = screenshotter.extract_screenshots(
         video_path,
@@ -127,13 +127,13 @@ def cli(url, provider, model, output_dir, transcriber, whisper_model, cpp_model,
     _done(t0)
 
     # ── Stage 4: OCR ─────────────────────────────────────────────────────
-    _stage("4/5", "Run OCR on screenshots")
+    _stage("4/6", "Run OCR on screenshots")
     t0 = time.time()
     ocr_results = ocr.run_ocr(shots, output_path=run_dir / f"ocr_results_{video_id}.json")
     _done(t0)
 
     # ── Stage 5: Extract lots ─────────────────────────────────────────────
-    _stage("5/5", f"Extract lots with {provider}/{model}")
+    _stage("5/6", f"Extract lots with {provider}/{model}")
     t0 = time.time()
     windows = aggregator.aggregate(segments, ocr_results)
     console.print(f"  Aggregated into {len(windows)} windows.")
@@ -147,10 +147,27 @@ def cli(url, provider, model, output_dir, transcriber, whisper_model, cpp_model,
     )
     _done(t0)
 
+    # ── Stage 6: Extract auction metadata ────────────────────────────────
+    _stage("6/6", f"Extract auction metadata with {provider}/{model}")
+    t0 = time.time()
+    metadata = extractor.extract_metadata(
+        windows,
+        client=client,
+        prompt_path=PROMPTS_DIR / "metadata.txt",
+        output_path=run_dir / f"metadata_{video_id}.json",
+    )
+    _done(t0)
+
     # ── Summary ───────────────────────────────────────────────────────────
     result = AuctionResult(
         video_url=url,
         video_id=video_id,
+        date=metadata.get("date"),
+        city=metadata.get("city"),
+        auctioneer=metadata.get("auctioneer"),
+        farm=metadata.get("farm"),
+        auction_type=metadata.get("auction_type"),
+        notes=metadata.get("notes"),
         total_lots=len(lots),
         lots=lots,
     )
@@ -160,6 +177,17 @@ def cli(url, provider, model, output_dir, transcriber, whisper_model, cpp_model,
     )
 
     console.rule("[bold green]Done")
+    if metadata.get("date") or metadata.get("city") or metadata.get("auctioneer"):
+        console.print(f"  Data:       {metadata.get('date') or '-'}")
+        console.print(f"  Cidade:     {metadata.get('city') or '-'}")
+        console.print(f"  Leiloeiro:  {metadata.get('auctioneer') or '-'}")
+        if metadata.get("farm"):
+            console.print(f"  Fazenda:    {metadata.get('farm')}")
+        if metadata.get("auction_type"):
+            console.print(f"  Tipo:       {metadata.get('auction_type')}")
+        if metadata.get("notes"):
+            console.print(f"  Obs:        {metadata.get('notes')}")
+        console.print()
     console.print(f"  Found [bold]{len(lots)}[/bold] lots.")
     console.print(f"  Output: [cyan]{run_dir}/[/cyan]")
     console.print()
@@ -184,6 +212,7 @@ def _clear_cache(run_dir: Path, video_id: str) -> None:
         f"screenshots_{video_id}.json",
         f"ocr_results_{video_id}.json",
         f"lots_{video_id}.json",
+        f"metadata_{video_id}.json",
         f"result_{video_id}.json",
     ]:
         p = run_dir / name
