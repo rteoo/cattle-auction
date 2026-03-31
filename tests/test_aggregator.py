@@ -107,6 +107,24 @@ class TestAggregate:
         windows = aggregate(segments, ocr)
         assert "LOTE 5 | Nelore | R$ 2.800" in windows[0].combined_text
 
+    def test_broadcast_clock_filtered_from_ocr(self):
+        """Real-world wall-clock times in OCR (broadcast overlay) must be stripped."""
+        segments = [seg(0, 30, "text")]
+        # "20:05:08" is a broadcast clock — should not appear in output
+        ocr = {"00:00:30": ["LOTE", "00", "20:05:08", "R$ 1.900"]}
+        windows = aggregate(segments, ocr)
+        assert "20:05:08" not in windows[0].combined_text
+        assert "LOTE" in windows[0].combined_text
+        assert "R$ 1.900" in windows[0].combined_text
+
+    def test_broadcast_clock_not_removing_valid_tokens(self):
+        """Lot numbers like '00' or prices like '1.900' are not clock patterns."""
+        segments = [seg(0, 30, "text")]
+        ocr = {"00:00:30": ["LOTE", "00", "R$ 1.900", "26BEZERROS-08M"]}
+        windows = aggregate(segments, ocr)
+        assert "00" in windows[0].combined_text
+        assert "1.900" in windows[0].combined_text
+
     def test_window_count_matches_duration(self):
         """20-minute video with 10-min windows and 1-min overlap → 3 windows."""
         segments = [seg(0, 1199, "long auction")]

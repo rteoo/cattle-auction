@@ -1,6 +1,11 @@
+import re
 from dataclasses import dataclass
 
 from pipeline.transcriber import Segment
+
+# Matches broadcast clock overlays like "19:59:41" or "20:05:08"
+# (real-world wall-clock times baked into the stream graphics — not video positions)
+_CLOCK_RE = re.compile(r"^\d{2}:\d{2}:\d{2}$")
 
 
 @dataclass
@@ -47,8 +52,12 @@ def aggregate(
         for ts_str, texts in ocr_results.items():
             secs = _parse_ts(ts_str)
             if start <= secs <= end and texts:
-                joined = " | ".join(texts)
-                ocr_lines.append(f"[{ts_str}] TELA: {joined}")
+                # Filter broadcast clock overlays (HH:MM:SS wall-clock time shown
+                # in stream graphics) — these are NOT video positions and confuse the LLM
+                filtered = [t for t in texts if not _CLOCK_RE.match(t)]
+                if filtered:
+                    joined = " | ".join(filtered)
+                    ocr_lines.append(f"[{ts_str}] TELA: {joined}")
 
         # Interleave by timestamp
         all_lines = trans_lines + ocr_lines

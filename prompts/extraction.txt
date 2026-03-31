@@ -32,6 +32,7 @@ ATENÇÃO — FORMATO DE NÚMEROS BRASILEIROS:
 - "2.500" = dois mil e quinhentos = 2500.00
 - "1.800,50" = 1800.50
 - Sempre converta para float com ponto decimal: "3.100" → 3100.00, "3.100,00" → 3100.00
+- NUNCA emita preços com ponto de milhar no JSON: "2.750" no OCR deve virar 2750.0 no JSON, não 2.75 ou 2.750
 
 ATENÇÃO — QUANTIDADE DE ANIMAIS:
 - num_animals é a QUANTIDADE de animais do lote (tipicamente entre 1 e 100)
@@ -44,6 +45,25 @@ ATENÇÃO — LOTES NÃO VENDIDOS:
 - Expressões como "retirado", "sem lance", "passou", "não arrematado" indicam sold = false
 - Se o lote for vendido com preço final anunciado, marque sold = true
 - Se não for possível determinar, use sold = null
+
+ATENÇÃO — LAYOUT DO OVERLAY DE LEILÃO NO OCR:
+Os dados da tela seguem o padrão:
+  ... | LOTE | [nome_fazenda] | VALORPORANIMAL | [número_lote] | R$ | [preço] | [Xanimais-Ymeses-raça] | ...
+Exemplos:
+  "LOTE | FAZENDATERRANOVA | VALORPORANIMAL | 00 | R$ | 1.900 | 26BEZERROS-08M-ANELORADOS"
+    → lot_number=0, unit_price=1900.00, num_animals=26, age_months=8, breed=Anelorado
+  "LOTE | FAZENDACURICACA | VALORPORANIMAL | 04 | R$ | 2.100 | 27BEZERROS-08M-ANELORADOS"
+    → lot_number=4, unit_price=2100.00, num_animals=27, age_months=8, breed=Anelorado
+Regras:
+- O token após VALORPORANIMAL é SEMPRE o número do lote (não é preço)
+- O token após R$ é SEMPRE o preço por animal
+- Quando R$ = "0" ou "0.0", significa que o lance ainda não foi iniciado → unit_price = null
+- O token "Xanimals-YM-raça" (ex: "26BEZERROS-08M-ANELORADOS") contém num_animals, age_months e breed
+
+ATENÇÃO — TIMESTAMP DO LOTE:
+- timestamp_start deve vir do marcador de posição do vídeo [HH:MM:SS] no início de cada linha ÁUDIO/TELA
+- Ex: "[01:56:30] TELA: ..." → timestamp_start = "01:56:30"
+- NUNCA use horários que aparecem dentro do conteúdo do TELA (ex: "19:59:41", "20:05:08") — esses são horários de relógio real do overlay de transmissão, não posições no vídeo
 
 ATENÇÃO — DADOS DA TELA (OCR) SÃO A FONTE PRIMÁRIA:
 - Quando houver dados de tela (OCR), eles têm PRIORIDADE MÁXIMA sobre o áudio para: número do lote, quantidade de animais, preço por animal e status de venda
