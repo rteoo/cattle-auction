@@ -46,6 +46,20 @@ class TestCoercePrice:
     def test_rs_prefix_no_space(self):
         assert self._lot(unit_price="R$2.500").unit_price == 2500.0
 
+    # BR float mis-parse guard: LLM outputs "5.160" in JSON → Python float 5.16
+    def test_float_under_100_multiplied_by_1000(self):
+        """5.16 (from JSON "5.160") must be corrected to 5160."""
+        assert self._lot(unit_price=5.16).unit_price == pytest.approx(5160.0)
+
+    def test_float_under_100_no_false_positive_above_100(self):
+        """Values ≥ 100 are not touched by the guard."""
+        assert self._lot(unit_price=100.0).unit_price == pytest.approx(100.0)
+        assert self._lot(unit_price=2750.0).unit_price == pytest.approx(2750.0)
+
+    def test_zero_not_multiplied(self):
+        """Zero is treated as null (no bid), not multiplied."""
+        assert self._lot(unit_price=0).unit_price == pytest.approx(0.0)
+
     # Edge cases
     def test_empty_string_returns_none(self):
         assert self._lot(unit_price="").unit_price is None

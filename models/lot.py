@@ -21,10 +21,17 @@ class Lot(BaseModel):
         if v is None:
             return None
         if isinstance(v, str):
-            # Strip R$, dots, convert comma to dot
+            # Strip R$, dots (BR thousand separator), convert comma to dot
             v = v.replace("R$", "").replace(".", "").replace(",", ".").strip()
             return float(v) if v else None
-        return float(v)
+        f = float(v)
+        # Guard against LLM outputting BR thousand-separator prices as JSON floats.
+        # e.g. "5.160" in JSON → Python float 5.16, but intended price is R$5,160.
+        # In Brazilian cattle auctions a per-head price below R$100 is not realistic,
+        # so values like 5.16 / 2.75 are almost certainly 5160 / 2750 mis-parsed.
+        if 0 < f < 100:
+            f = f * 1000
+        return f
 
 
 class AuctionResult(BaseModel):

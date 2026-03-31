@@ -291,21 +291,19 @@ def _print_summary(summary: dict) -> None:
 
     console.print("[bold cyan]Resumo:[/bold cyan]")
 
-    # Lotes line
+    # Lotes line — same 2-space indent as all other lines
     console.print(
-        f"   Lotes: {summary['total_lots']}"
+        f"  Lotes: {summary['total_lots']}"
         f"  |  Vendidos: {summary.get('sold', 0)}"
         f"  |  Não vendidos: {summary.get('not_sold', 0)}"
     )
 
     # Animais line
     sex = summary.get("sex_animals", {})
-    sex_str = "  |  ".join(
-        f"{k.title()}: {v}" for k, v in sex.items()
-    )
+    sex_str = "  |  ".join(f"{k.title()}: {v}" for k, v in sex.items())
     console.print(f"  Animais: {summary['total_animals']}" + (f"  |  {sex_str}" if sex_str else ""))
 
-    # Category lines (male / female)
+    # Category animal-count lines (male / female / other)
     male_str = _cat_animal_str(_MALE_CATEGORIES)
     female_str = _cat_animal_str(_FEMALE_CATEGORIES)
     other_cats = [c for c in cat_animals if c not in _MALE_CATEGORIES and c not in _FEMALE_CATEGORIES]
@@ -322,14 +320,20 @@ def _print_summary(summary: dict) -> None:
     if summary.get("avg_price"):
         console.print(f"  Preço Médio: R$ {summary['avg_price']:,.2f} / cabeça")
 
-    # Avg price by category (male then female then other)
-    ordered_cats = [c for c in _MALE_CATEGORIES if c in cat_prices]
-    ordered_cats += [c for c in _FEMALE_CATEGORIES if c in cat_prices]
-    ordered_cats += [c for c in cat_prices if c not in _MALE_CATEGORIES and c not in _FEMALE_CATEGORIES]
-    if ordered_cats:
-        console.print("  Preço Médio por Categoria:")
-        price_line = "  |  ".join(f"{c}: R$ {cat_prices[c]:,.2f}" for c in ordered_cats)
-        console.print(f"    {price_line}")
+    # Avg price by category — same M/F split to keep lines short and aligned
+    male_price_str = _cat_price_str(_MALE_CATEGORIES)
+    female_price_str = _cat_price_str(_FEMALE_CATEGORIES)
+    other_price_cats = [c for c in cat_prices if c not in _MALE_CATEGORIES and c not in _FEMALE_CATEGORIES]
+    other_price_str = _cat_price_str(other_price_cats)
+
+    if male_price_str or female_price_str or other_price_str:
+        console.print("  Preço por Categoria:")
+        if male_price_str:
+            console.print(f"    M:  {male_price_str}")
+        if female_price_str:
+            console.print(f"    F:  {female_price_str}")
+        if other_price_str:
+            console.print(f"    +:  {other_price_str}")
 
     console.print()
 

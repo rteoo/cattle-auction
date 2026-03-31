@@ -32,7 +32,11 @@ ATENÇÃO — FORMATO DE NÚMEROS BRASILEIROS:
 - "2.500" = dois mil e quinhentos = 2500.00
 - "1.800,50" = 1800.50
 - Sempre converta para float com ponto decimal: "3.100" → 3100.00, "3.100,00" → 3100.00
-- NUNCA emita preços com ponto de milhar no JSON: "2.750" no OCR deve virar 2750.0 no JSON, não 2.75 ou 2.750
+- NUNCA emita preços com ponto de milhar no JSON. O ponto no JSON é decimal, não separador de milhar!
+  - R$ 5.160 → JSON: 5160   (NÃO 5.160 — que seria lido como R$ 5,16!)
+  - R$ 2.750 → JSON: 2750   (NÃO 2.750 — que seria lido como R$ 2,75!)
+  - R$ 3.100 → JSON: 3100   (NÃO 3.100 — que seria lido como R$ 3,10!)
+  - Regra: remova todos os pontos do preço antes de escrever no JSON
 
 ATENÇÃO — SEXO A PARTIR DA CATEGORIA:
 - O nome da categoria já indica o sexo — use isso como regra primária:
