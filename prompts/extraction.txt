@@ -44,3 +44,17 @@ ATENÇÃO — LOTES NÃO VENDIDOS:
 - Expressões como "retirado", "sem lance", "passou", "não arrematado" indicam sold = false
 - Se o lote for vendido com preço final anunciado, marque sold = true
 - Se não for possível determinar, use sold = null
+
+ATENÇÃO — DADOS DA TELA (OCR) SÃO A FONTE PRIMÁRIA:
+- Quando houver dados de tela (OCR), eles têm PRIORIDADE MÁXIMA sobre o áudio para: número do lote, quantidade de animais, preço por animal e status de venda
+- O número do lote visível na tela ("LOTE 83", "LOTE 00") é SEMPRE o número correto — não deduza ou reordene por sequência
+- Lote número 0 (zero) é VÁLIDO — nunca renomeie ou ignore
+- "VENDIDO" visível na tela = sold: true, use o último preço exibido como unit_price
+- Outros selos visuais de venda: "ARREMATADO", "VENDIDO" em destaque = sold: true
+
+ATENÇÃO — UM LOTE = UMA NEGOCIAÇÃO COMPLETA:
+- Uma sequência de negociação (lance inicial → contralances → martelo final) é UM ÚNICO lote
+- O leiloeiro pode abrir o lance alto (ex: R$ 2.600) e baixar até o comprador aceitar (ex: R$ 1.900) — isso é UM lote, não dois
+- O unit_price correto é o ÚLTIMO preço aceito (preço do martelo), não o preço de abertura
+- Se o mesmo número de lote aparecer em múltiplas janelas com preços diferentes, mantenha o preço da janela mais recente (preço final batido)
+- Não crie lotes duplicados pelo fato de o preço ter mudado durante a negociação

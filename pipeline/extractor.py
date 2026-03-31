@@ -156,10 +156,28 @@ def _merge(lots_by_number: dict[int, Lot], new_lot: Lot) -> None:
     existing_data = existing.model_dump()
     new_data = new_lot.model_dump()
 
-    merged = {
-        k: existing_data[k] if existing_data[k] is not None else new_data[k]
-        for k in existing_data
-    }
+    # Prices use last-non-null: later windows carry the final hammer price
+    price_fields = {"unit_price", "total_price"}
+    # sold=True is a final determination and always wins
+    sold_existing = existing_data["sold"]
+    sold_new = new_data["sold"]
+    if sold_new is True:
+        merged_sold = True
+    elif sold_existing is False and sold_new is None:
+        merged_sold = False  # preserve explicit not-sold over unknown
+    else:
+        merged_sold = sold_new if sold_new is not None else sold_existing
+
+    merged = {}
+    for k in existing_data:
+        if k == "sold":
+            merged[k] = merged_sold
+        elif k in price_fields:
+            # last-non-null wins for prices (final hammer beats opening ask)
+            merged[k] = new_data[k] if new_data[k] is not None else existing_data[k]
+        else:
+            merged[k] = existing_data[k] if existing_data[k] is not None else new_data[k]
+
     lots_by_number[new_lot.lot_number] = Lot(**merged)
 
 

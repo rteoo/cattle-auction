@@ -114,14 +114,40 @@ class TestMerge:
         _merge(store, second)
         assert store[1].unit_price == 3000.0
 
-    def test_existing_non_null_not_overwritten(self):
-        """First non-null value wins."""
+    def test_non_price_non_null_not_overwritten(self):
+        """First non-null wins for stable fields like breed."""
         store = {}
-        first = _make_lot(lot_number=1, unit_price=3000.0)
+        first = _make_lot(lot_number=1, breed="Nelore")
         _merge(store, first)
-        second = _make_lot(lot_number=1, unit_price=5000.0)
+        second = _make_lot(lot_number=1, breed="Anelorado")
         _merge(store, second)
-        assert store[1].unit_price == 3000.0
+        assert store[1].breed == "Nelore"
+
+    def test_price_updated_by_later_window(self):
+        """Prices use last-non-null: final hammer price beats opening ask."""
+        store = {}
+        first = _make_lot(lot_number=1, unit_price=2600.0)
+        _merge(store, first)
+        second = _make_lot(lot_number=1, unit_price=1900.0)
+        _merge(store, second)
+        assert store[1].unit_price == 1900.0
+
+    def test_price_not_cleared_by_later_null(self):
+        """A later window with null price doesn't wipe an established price."""
+        store = {}
+        first = _make_lot(lot_number=1, unit_price=2600.0)
+        _merge(store, first)
+        second = _make_lot(lot_number=1, unit_price=None)
+        _merge(store, second)
+        assert store[1].unit_price == 2600.0
+
+    def test_total_price_updated_by_later_window(self):
+        store = {}
+        first = _make_lot(lot_number=1, total_price=67600.0)
+        _merge(store, first)
+        second = _make_lot(lot_number=1, total_price=49400.0)
+        _merge(store, second)
+        assert store[1].total_price == 49400.0
 
     def test_multiple_null_fields_filled(self):
         store = {}
@@ -150,6 +176,15 @@ class TestMerge:
     def test_sold_none_filled_by_true(self):
         store = {}
         first = _make_lot(lot_number=1, sold=None)
+        _merge(store, first)
+        second = _make_lot(lot_number=1, sold=True)
+        _merge(store, second)
+        assert store[1].sold is True
+
+    def test_sold_true_overrides_false(self):
+        """sold=True is a final determination — overrides prior False."""
+        store = {}
+        first = _make_lot(lot_number=1, sold=False)
         _merge(store, first)
         second = _make_lot(lot_number=1, sold=True)
         _merge(store, second)
