@@ -157,12 +157,12 @@ All files are written to `output/<video_id>/`:
 
 ## Testing
 
-The project includes a comprehensive unit test suite with 77 tests covering:
+The project includes a comprehensive unit test suite with 86 tests covering:
 
-- **Model validation** — `Lot` and `AuctionResult` data validation, Brazilian number format coercion, required field checks
+- **Model validation** — `Lot` and `AuctionResult` data validation, Brazilian number format coercion, price mis-parsing guards, required field checks
 - **LLM response parsing** — JSON extraction with extra-text tolerance, lot merging, sold field detection
-- **Data aggregation** — Window overlap logic, transcript + OCR merging, empty window placeholders
-- **Summary statistics** — Animal counts by sex, top categories, average prices, sold/unsold tracking
+- **Data aggregation** — Window overlap logic, transcript + OCR merging, broadcast clock filtering, empty window placeholders
+- **Summary statistics** — Animal counts by category and sex, average prices by category, sold/unsold tracking
 
 Run tests:
 

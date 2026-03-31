@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-03-31
+
+### Fixed
+
+- **Broadcast Clock Filtering** — Screen overlays display wall-clock time (e.g., "20:05:08") which was being picked up by OCR and incorrectly used as lot timestamps. Added token filter to remove HH:MM:SS patterns from OCR data before processing.
+- **OCR Layout Clarification** — Auction screen text was being misinterpreted by LLM due to unclear layout structure. Added explicit pattern documentation with worked examples showing "LOTE | farm | VALORPORANIMAL | lot_number | R$ | price | description" order.
+- **BR Float Mis-parsing** — When LLM outputs Brazilian thousand-separator format (e.g., "5.160") as JSON float, the JSON parser reads it as 5.16 instead of 5160. Added validator heuristic: prices between 0 and 100 are multiplied by 1000 (unrealistic for cattle per-head prices). Also strengthened prompt with explicit examples of this error pattern.
+- **Summary Alignment** — Fixed indentation inconsistency where "Lotes" line had 3 spaces while other lines had 2. Split "Preço por Categoria" into M/F sub-lines to prevent text wrapping misalignment.
+
+### Improved
+
+- **Table Sorting** — Lots table now sorted by timestamp_start from earliest to latest lot appearance in video. Lots without timestamp are displayed last.
+- **Summary Statistics** — Replaced sex-based price averages with category-based price averages, providing more granular and actionable price insights. Summary now shows price by category (bezerro, garrote, vaca, etc.) instead of by sex.
+- **Category Logic** — Improved sex field inference: sex is now always derived from category name (e.g., bezerro→macho, bezerra→fêmea). "Misto" is reserved for genuinely mixed lots only.
+
+### Added
+
+- **Enhanced Testing** — Added 5 new unit tests covering broadcast clock filtering, BR float validation, and edge cases. Total test count: 86 tests (all passing).
+
+### Technical Details
+
+- Window aggregation now filters OCR tokens before merging with transcript segments
+- Price coercion validator now applies multiplication guard for realistic cattle price ranges
+- Summary statistics computation refactored to support both sex and category aggregations
+- All 86 unit tests pass with no external dependencies
+
 ## [1.2.0] - 2026-03-28
 
 ### Added
@@ -102,6 +128,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - rapidocr for text recognition
 - **Estimated Processing Time**: ~30-60 minutes for a 5-hour video on Apple Silicon M2 (varies by backend and configuration)
 
+[1.2.1]: https://github.com/TeodoroRodrigo/cattle-auction/releases/tag/v1.2.1
 [1.2.0]: https://github.com/TeodoroRodrigo/cattle-auction/releases/tag/v1.2.0
 [1.1.1]: https://github.com/TeodoroRodrigo/cattle-auction/releases/tag/v1.1.1
 [1.1.0]: https://github.com/TeodoroRodrigo/cattle-auction/releases/tag/v1.1.0
