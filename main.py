@@ -219,12 +219,16 @@ def cli(url, provider, model, output_dir, transcriber, whisper_model, cpp_model,
         _print_table(lots)
 
 
+_MALE_CATEGORIES = ("bezerro", "garrote", "novilho", "boi", "touro")
+_FEMALE_CATEGORIES = ("bezerra", "novilha", "vaca", "bezerra desmamada", "vaca parida", "vaca prenha", "vaca com bezerro")
+
+
 def _calculate_summary(lots: list) -> dict:
     """Calculate summary statistics from lots."""
     if not lots:
         return {}
 
-    from collections import Counter
+    from collections import Counter, defaultdict
 
     total_lots = len(lots)
     total_animals = sum(lot.num_animals for lot in lots)
@@ -236,22 +240,22 @@ def _calculate_summary(lots: list) -> dict:
         if animals > 0:
             sex_animals[sex] = animals
 
-    # Count by category (top 5)
-    category_animals = Counter()
+    # Animal count by category (all categories, sorted by count desc)
+    cat_counter = Counter()
     for lot in lots:
-        category_animals[lot.category] += lot.num_animals
-    top_categories = dict(category_animals.most_common(5))
+        cat_counter[lot.category] += lot.num_animals
+    category_animals = dict(cat_counter.most_common())
 
     # Price statistics
     prices = [lot.unit_price for lot in lots if lot.unit_price and lot.unit_price > 0]
     avg_price = sum(prices) / len(prices) if prices else 0
 
-    # Price by sex
-    sex_prices = {}
-    for sex in ["macho", "fêmea", "misto"]:
-        sex_price_list = [lot.unit_price for lot in lots if lot.sex == sex and lot.unit_price and lot.unit_price > 0]
-        if sex_price_list:
-            sex_prices[sex] = sum(sex_price_list) / len(sex_price_list)
+    # Avg price by category
+    cat_price_lists: dict = defaultdict(list)
+    for lot in lots:
+        if lot.unit_price and lot.unit_price > 0:
+            cat_price_lists[lot.category].append(lot.unit_price)
+    category_prices = {cat: sum(pl) / len(pl) for cat, pl in cat_price_lists.items()}
 
     # Sold status
     sold = sum(1 for lot in lots if lot.sold is True)
@@ -261,9 +265,9 @@ def _calculate_summary(lots: list) -> dict:
         "total_lots": total_lots,
         "total_animals": total_animals,
         "sex_animals": sex_animals,
-        "top_categories": top_categories,
+        "category_animals": category_animals,
         "avg_price": avg_price,
-        "sex_prices": sex_prices,
+        "category_prices": category_prices,
         "sold": sold,
         "not_sold": not_sold,
     }
@@ -274,26 +278,58 @@ def _print_summary(summary: dict) -> None:
     if not summary:
         return
 
-    console.print("[bold cyan]Summary[/bold cyan]")
-    console.print(f"  Lots: {summary['total_lots']} | Animals: {summary['total_animals']}")
+    cat_animals = summary.get("category_animals", {})
+    cat_prices = summary.get("category_prices", {})
 
-    if summary.get("sex_animals"):
-        sex_str = " | ".join(f"{sex.title()}: {count}" for sex, count in summary["sex_animals"].items())
-        console.print(f"  By sex: {sex_str}")
+    def _cat_animal_str(cats):
+        parts = [f"{c}: {cat_animals[c]}" for c in cats if c in cat_animals]
+        return "  |  ".join(parts)
 
-    if summary.get("top_categories"):
-        cats_str = " | ".join(f"{cat}: {count}" for cat, count in summary["top_categories"].items())
-        console.print(f"  Top categories: {cats_str}")
+    def _cat_price_str(cats):
+        parts = [f"{c}: R$ {cat_prices[c]:,.2f}" for c in cats if c in cat_prices]
+        return "  |  ".join(parts)
 
+    console.print("[bold cyan]Resumo:[/bold cyan]")
+
+    # Lotes line
+    console.print(
+        f"   Lotes: {summary['total_lots']}"
+        f"  |  Vendidos: {summary.get('sold', 0)}"
+        f"  |  Não vendidos: {summary.get('not_sold', 0)}"
+    )
+
+    # Animais line
+    sex = summary.get("sex_animals", {})
+    sex_str = "  |  ".join(
+        f"{k.title()}: {v}" for k, v in sex.items()
+    )
+    console.print(f"  Animais: {summary['total_animals']}" + (f"  |  {sex_str}" if sex_str else ""))
+
+    # Category lines (male / female)
+    male_str = _cat_animal_str(_MALE_CATEGORIES)
+    female_str = _cat_animal_str(_FEMALE_CATEGORIES)
+    other_cats = [c for c in cat_animals if c not in _MALE_CATEGORIES and c not in _FEMALE_CATEGORIES]
+    other_str = _cat_animal_str(other_cats)
+
+    if male_str:
+        console.print(f"  Categorias M:  {male_str}")
+    if female_str:
+        console.print(f"  Categorias F:  {female_str}")
+    if other_str:
+        console.print(f"  Categorias +:  {other_str}")
+
+    # Overall avg price
     if summary.get("avg_price"):
-        console.print(f"  Average price: R$ {summary['avg_price']:,.2f}")
+        console.print(f"  Preço Médio: R$ {summary['avg_price']:,.2f} / cabeça")
 
-    if summary.get("sex_prices"):
-        price_str = " | ".join(f"{sex.title()}: R$ {price:,.2f}" for sex, price in summary["sex_prices"].items())
-        console.print(f"  Avg price by sex: {price_str}")
-
-    if summary.get("sold") or summary.get("not_sold"):
-        console.print(f"  Sold: {summary.get('sold', 0)} | Not sold: {summary.get('not_sold', 0)}")
+    # Avg price by category (male then female then other)
+    ordered_cats = [c for c in _MALE_CATEGORIES if c in cat_prices]
+    ordered_cats += [c for c in _FEMALE_CATEGORIES if c in cat_prices]
+    ordered_cats += [c for c in cat_prices if c not in _MALE_CATEGORIES and c not in _FEMALE_CATEGORIES]
+    if ordered_cats:
+        console.print("  Preço Médio por Categoria:")
+        price_line = "  |  ".join(f"{c}: R$ {cat_prices[c]:,.2f}" for c in ordered_cats)
+        console.print(f"    {price_line}")
 
     console.print()
 
@@ -343,7 +379,8 @@ def _print_table(lots) -> None:
     table.add_column("Vendido")
     table.add_column("Timestamp")
 
-    for lot in lots:
+    sorted_lots = sorted(lots, key=lambda l: l.timestamp_start or "99:99:99")
+    for lot in sorted_lots:
         age = f"{lot.age_months}m" if lot.age_months else "-"
         price = f"{lot.unit_price:,.2f}" if lot.unit_price else "-"
         if lot.sold is True:

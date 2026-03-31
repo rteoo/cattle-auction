@@ -34,6 +34,13 @@ ATENÇÃO — FORMATO DE NÚMEROS BRASILEIROS:
 - Sempre converta para float com ponto decimal: "3.100" → 3100.00, "3.100,00" → 3100.00
 - NUNCA emita preços com ponto de milhar no JSON: "2.750" no OCR deve virar 2750.0 no JSON, não 2.75 ou 2.750
 
+ATENÇÃO — SEXO A PARTIR DA CATEGORIA:
+- O nome da categoria já indica o sexo — use isso como regra primária:
+  - "bezerro", "garrote", "novilho", "boi", "touro" → sex = "macho"
+  - "bezerra", "novilha", "vaca", "vaca parida", "vaca prenha", "bezerra desmamada" → sex = "fêmea"
+- Use "misto" SOMENTE quando o lote tiver machos e fêmeas explicitamente misturados (ex: "vaca com bezerro")
+- Não use "misto" apenas porque a informação não está clara — prefira inferir pelo nome da categoria
+
 ATENÇÃO — QUANTIDADE DE ANIMAIS:
 - num_animals é a QUANTIDADE de animais do lote (tipicamente entre 1 e 100)
 - num_animals NUNCA deve ser igual ao número do lote

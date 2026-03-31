@@ -46,7 +46,7 @@ class TestCalculateSummary:
         assert "fêmea" not in s["sex_animals"]
         assert "misto" not in s["sex_animals"]
 
-    def test_top_categories_by_animal_count(self):
+    def test_category_animals_by_count(self):
         lots = [
             lot(1, "macho", "bezerro", 20),
             lot(2, "macho", "bezerro", 15),
@@ -56,11 +56,13 @@ class TestCalculateSummary:
             lot(6, "fêmea", "bezerra", 2),
         ]
         s = _calculate_summary(lots)
-        cats = s["top_categories"]
+        cats = s["category_animals"]
         # bezerro has most (35), should be first
         assert list(cats.keys())[0] == "bezerro"
         assert cats["bezerro"] == 35
-        assert len(cats) <= 5  # at most top 5
+        # all categories present
+        assert "vaca" in cats
+        assert "garrote" in cats
 
     def test_average_price_excludes_nulls(self):
         lots = [
@@ -83,24 +85,24 @@ class TestCalculateSummary:
         lots = [lot(1, "macho", "bezerro", 5, unit_price=None)]
         assert _calculate_summary(lots)["avg_price"] == 0
 
-    def test_avg_price_by_sex(self):
+    def test_avg_price_by_category(self):
         lots = [
             lot(1, "macho", "bezerro", 5, unit_price=2000.0),
-            lot(2, "macho", "garrote", 3, unit_price=4000.0),
+            lot(2, "macho", "bezerro", 3, unit_price=4000.0),
             lot(3, "fêmea", "vaca", 2, unit_price=6000.0),
         ]
         s = _calculate_summary(lots)
-        assert s["sex_prices"]["macho"] == pytest.approx(3000.0)
-        assert s["sex_prices"]["fêmea"] == pytest.approx(6000.0)
+        assert s["category_prices"]["bezerro"] == pytest.approx(3000.0)
+        assert s["category_prices"]["vaca"] == pytest.approx(6000.0)
 
-    def test_sex_excluded_from_price_if_no_price(self):
+    def test_category_excluded_from_price_if_no_price(self):
         lots = [
             lot(1, "macho", "bezerro", 5, unit_price=3000.0),
             lot(2, "fêmea", "vaca", 3, unit_price=None),
         ]
         s = _calculate_summary(lots)
-        assert "macho" in s["sex_prices"]
-        assert "fêmea" not in s["sex_prices"]
+        assert "bezerro" in s["category_prices"]
+        assert "vaca" not in s["category_prices"]
 
     def test_sold_count(self):
         lots = [
