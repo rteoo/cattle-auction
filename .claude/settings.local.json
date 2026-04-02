@@ -1,0 +1,42 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -c \"import ast, sys; files = [''main.py'', ''pipeline/downloader.py'', ''pipeline/transcriber.py'', ''pipeline/screenshotter.py'', ''pipeline/ocr.py'', ''pipeline/aggregator.py'', ''pipeline/extractor.py'', ''models/lot.py'']; [print\\(f''OK: {f}''\\) or ast.parse\\(open\\(f\\).read\\(\\)\\) for f in files]; print\\(''All syntax OK''\\)\")",
+      "Bash(python3 -c \":*)",
+      "Bash(ffmpeg -version)",
+      "Bash(uv sync:*)",
+      "Bash(uv run python3 -c \":*)",
+      "Bash(python3 -c \"import ast; ast.parse\\(open\\(''main.py''\\).read\\(\\)\\); print\\(''OK''\\)\")",
+      "WebSearch",
+      "Bash(uv run:*)",
+      "Bash(yt-dlp --version)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git remote:*)",
+      "Bash(gh auth:*)",
+      "Bash(gh repo:*)",
+      "Bash(git config:*)",
+      "Bash(GIT_TERMINAL_PROMPT=0 git push -u origin main)",
+      "Bash(xargs -I {} sh -c 'git -c credential.helper=\"\"\"\"!echo username=oauth2 && echo password={}\"\"\"\" push -u origin main')",
+      "Bash(git credential-cache:*)",
+      "Bash(gh api:*)",
+      "Bash(git fetch:*)",
+      "Bash(git reset:*)",
+      "Bash(/tmp/git-creds.sh:*)",
+      "Bash(chmod +x /tmp/git-creds.sh)",
+      "Bash(/tmp/release-notes.md:*)",
+      "Bash(gh release:*)",
+      "Bash(uv add:*)",
+      "Bash(uv remove:*)",
+      "Bash(git filter-repo --force --message-callback ':*)",
+      "Bash(git tag:*)",
+      "Bash(python3 -c \"import json; lots = json.load\\(open\\(''/Users/theo/Projects/cattle-auction/output/TTNfx03Ubr8/lots_TTNfx03Ubr8.json''\\)\\); print\\(f''Total lots: {len\\(lots\\)}''\\); [print\\(json.dumps\\(l, ensure_ascii=False\\)\\) for l in lots if l[''lot_number''] <= 5 or l.get\\(''num_animals''\\) == 26]\")",
+      "Bash(farm)",
+      "Bash(VALORPORANIMAL)",
+      "Bash(lot_number)",
+      "Bash(R$)",
+      "Bash(price)"
+    ]
+  }
+}
