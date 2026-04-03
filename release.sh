@@ -114,8 +114,9 @@ MAJOR=$(echo "$LAST_BARE" | cut -d. -f1)
 MINOR=$(echo "$LAST_BARE" | cut -d. -f2)
 PATCH=$(echo "$LAST_BARE" | cut -d. -f3)
 
-# Commits since last tag
-COMMITS=$(PATH=/opt/homebrew/bin:$PATH git log "${LAST_TAG}..HEAD" --oneline)
+# Commits since last tag — exclude script-internal commits from notes
+COMMITS=$(PATH=/opt/homebrew/bin:$PATH git log "${LAST_TAG}..HEAD" --oneline \
+    | grep -vE "chore: (release changes|bump version to )" || true)
 COMMIT_COUNT=$(echo "$COMMITS" | grep -c . || true)
 
 if [ "$COMMIT_COUNT" -eq 0 ]; then
@@ -191,9 +192,42 @@ fi
 # 2. Fall back to git log grouped by type
 if [ -z "$RELEASE_NOTES" ]; then
     print_info "No CHANGELOG entry found — generating from commits"
-    FEATURES=$(echo "$COMMITS" | grep -E "^[a-f0-9]+ feat(\([^)]+\))?(!)?:" | sed 's/^[a-f0-9]* /- /' || true)
-    FIXES=$(echo "$COMMITS"    | grep -E "^[a-f0-9]+ fix(\([^)]+\))?:"  | sed 's/^[a-f0-9]* /- /' || true)
-    OTHER=$(echo "$COMMITS"    | grep -vE "^[a-f0-9]+ (feat|fix)(\([^)]+\))?(!)?:" | sed 's/^[a-f0-9]* /- /' || true)
+
+    # Build a rich entry per commit: subject (with conventional prefix stripped)
+    # followed by any body lines, indented.
+    _format_commits() {
+        local pattern="$1"
+        local hashes
+        hashes=$(echo "$COMMITS" | grep -E "^[a-f0-9]+ ${pattern}" | awk '{print $1}' || true)
+        [ -z "$hashes" ] && return
+        while IFS= read -r hash; do
+            [ -z "$hash" ] && continue
+            local subject body entry
+            subject=$(PATH=/opt/homebrew/bin:$PATH git log -1 --format="%s" "$hash" \
+                | sed -E 's/^(feat|fix|docs|refactor|chore|test|perf|ci|style)(\([^)]+\))?(!)?: //')
+            body=$(PATH=/opt/homebrew/bin:$PATH git log -1 --format="%b" "$hash" | sed '/^[[:space:]]*$/d')
+            entry="- ${subject}"
+            if [ -n "$body" ]; then
+                entry="${entry}"$'\n'"$(echo "$body" | sed 's/^/  /')"
+            fi
+            echo "$entry"
+        done <<< "$hashes"
+    }
+
+    FEATURES=$(_format_commits "feat(\([^)]+\))?(!)?:" || true)
+    FIXES=$(_format_commits "fix(\([^)]+\))?:" || true)
+    OTHER=$(echo "$COMMITS" \
+        | grep -vE "^[a-f0-9]+ (feat|fix)(\([^)]+\))?(!)?:" \
+        | awk '{print $1}' \
+        | while IFS= read -r hash; do
+            [ -z "$hash" ] && continue
+            subject=$(PATH=/opt/homebrew/bin:$PATH git log -1 --format="%s" "$hash" \
+                | sed -E 's/^(docs|refactor|chore|test|perf|ci|style)(\([^)]+\))?(!)?: //')
+            body=$(PATH=/opt/homebrew/bin:$PATH git log -1 --format="%b" "$hash" | sed '/^[[:space:]]*$/d')
+            entry="- ${subject}"
+            [ -n "$body" ] && entry="${entry}"$'\n'"$(echo "$body" | sed 's/^/  /')"
+            echo "$entry"
+          done || true)
 
     [ -n "$FEATURES" ] && RELEASE_NOTES="${RELEASE_NOTES}### Added"$'\n'"${FEATURES}"$'\n\n'
     [ -n "$FIXES" ]    && RELEASE_NOTES="${RELEASE_NOTES}### Fixed"$'\n'"${FIXES}"$'\n\n'

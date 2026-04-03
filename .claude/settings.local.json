@@ -36,7 +36,8 @@
       "Bash(VALORPORANIMAL)",
       "Bash(lot_number)",
       "Bash(R$)",
-      "Bash(price)"
+      "Bash(price)",
+      "Bash(bash:*)"
     ]
   }
 }
