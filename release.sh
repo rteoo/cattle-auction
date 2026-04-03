@@ -114,10 +114,9 @@ MAJOR=$(echo "$LAST_BARE" | cut -d. -f1)
 MINOR=$(echo "$LAST_BARE" | cut -d. -f2)
 PATCH=$(echo "$LAST_BARE" | cut -d. -f3)
 
-# Commits since last tag — exclude script-internal commits from notes
-COMMITS=$(PATH=/opt/homebrew/bin:$PATH git log "${LAST_TAG}..HEAD" --oneline \
-    | grep -vE "chore: (release changes|bump version to )" || true)
-COMMIT_COUNT=$(echo "$COMMITS" | grep -c . || true)
+# All commits since last tag (used for counting and bump-type detection)
+ALL_COMMITS=$(PATH=/opt/homebrew/bin:$PATH git log "${LAST_TAG}..HEAD" --oneline)
+COMMIT_COUNT=$(echo "$ALL_COMMITS" | grep -c . || true)
 
 if [ "$COMMIT_COUNT" -eq 0 ]; then
     print_error "No commits since $LAST_TAG — nothing to release"
@@ -125,12 +124,16 @@ if [ "$COMMIT_COUNT" -eq 0 ]; then
 fi
 
 print_info "Commits since $LAST_TAG: $COMMIT_COUNT"
-echo "$COMMITS" | while read -r line; do print_dim "$line"; done
+echo "$ALL_COMMITS" | while read -r line; do print_dim "$line"; done
+
+# Commits used for release notes — strip script-internal entries
+COMMITS=$(echo "$ALL_COMMITS" \
+    | grep -vE "chore: (release changes|bump version to )" || true)
 
 if [ -z "$VERSION" ]; then
     # feat: (new feature) → bump minor, reset patch
     # fix:/chore:/docs:/refactor:/etc → bump patch only
-    if echo "$COMMITS" | grep -qE "^[a-f0-9]+ feat(\([^)]+\))?(!)?:"; then
+    if echo "$ALL_COMMITS" | grep -qE "^[a-f0-9]+ feat(\([^)]+\))?(!)?:"; then
         BUMP_TYPE="minor"
         AUTO_VERSION="${MAJOR}.$((MINOR + 1)).0"
     else
