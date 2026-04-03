@@ -82,6 +82,7 @@ if [ "$SKIP_GITHUB" != "true" ]; then
         print_error "gh not authenticated — run: gh auth login"
         exit 1
     fi
+    $GH_CMD auth setup-git
     print_success "gh CLI authenticated"
 fi
 
