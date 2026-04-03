@@ -2,6 +2,21 @@ from pydantic import BaseModel, field_validator
 from typing import Literal
 
 
+_CATEGORY_PLURAL_MAP = {
+    "bezerros": "bezerro",
+    "bezerras": "bezerra",
+    "garrotes": "garrote",
+    "novilhos": "novilho",
+    "novilhas": "novilha",
+    "bois": "boi",
+    "touros": "touro",
+    "vacas": "vaca",
+    "machos": "macho",
+    "fêmeas": "fêmea",
+    "mistos": "misto",
+}
+
+
 class Lot(BaseModel):
     lot_number: int
     sex: str  # macho, fêmea, misto
@@ -14,6 +29,14 @@ class Lot(BaseModel):
     sold: bool | None = None  # True = arrematado, False = não vendido/retirado, None = indefinido
     timestamp_start: str | None = None  # HH:MM:SS
     notes: str | None = None
+
+    @field_validator("category", mode="before")
+    @classmethod
+    def normalize_category(cls, v):
+        if isinstance(v, str):
+            normalized = v.strip().lower()
+            return _CATEGORY_PLURAL_MAP.get(normalized, normalized)
+        return v
 
     @field_validator("unit_price", "total_price", mode="before")
     @classmethod

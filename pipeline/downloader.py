@@ -1,3 +1,4 @@
+import json
 import subprocess
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
@@ -17,6 +18,23 @@ def get_video_id(url: str) -> str:
     with yt_dlp.YoutubeDL({"quiet": True}) as ydl:
         info = ydl.extract_info(url, download=False)
         return info["id"]
+
+
+def get_video_info(url: str, output_dir: Path, video_id: str) -> dict:
+    """Fetch and cache video title + description from YouTube."""
+    cache_path = output_dir / f"video_info_{video_id}.json"
+    if cache_path.exists():
+        return json.loads(cache_path.read_text())
+
+    with yt_dlp.YoutubeDL({"quiet": True}) as ydl:
+        info = ydl.extract_info(url, download=False)
+
+    result = {
+        "title": info.get("title", ""),
+        "description": (info.get("description") or "")[:2000],  # cap length
+    }
+    cache_path.write_text(json.dumps(result, ensure_ascii=False, indent=2))
+    return result
 
 
 def download(url: str, output_dir: Path, video_id: str) -> tuple[Path, Path]:

@@ -77,6 +77,34 @@ class TestCoercePrice:
         assert lot.total_price == 15500.0
 
 
+# ── normalize_category ──────────────────────────────────────────────────────
+
+class TestNormalizeCategory:
+    def _lot(self, category):
+        return Lot(lot_number=1, sex="macho", category=category, num_animals=5, breed="Nelore")
+
+    def test_plural_garrotes_normalized(self):
+        assert self._lot("garrotes").category == "garrote"
+
+    def test_plural_novilhas_normalized(self):
+        assert self._lot("novilhas").category == "novilha"
+
+    def test_plural_bezerros_normalized(self):
+        assert self._lot("bezerros").category == "bezerro"
+
+    def test_singular_unchanged(self):
+        assert self._lot("garrote").category == "garrote"
+
+    def test_unknown_category_unchanged(self):
+        assert self._lot("tourinho").category == "tourinho"
+
+    def test_whitespace_stripped(self):
+        assert self._lot("  garrotes  ").category == "garrote"
+
+    def test_case_insensitive(self):
+        assert self._lot("Garrotes").category == "garrote"
+
+
 # ── sold field ───────────────────────────────────────────────────────────────
 
 class TestSoldField:

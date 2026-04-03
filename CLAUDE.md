@@ -83,6 +83,7 @@ Each stage writes a checkpoint file. On rerun, if the file exists the stage is s
 - `pipeline/extractor.py` — sends windows to LLM, parses JSON response, deduplicates by lot_number; supports model aliases via `_MODEL_ALIASES`; also runs `extract_metadata()` on first 3 windows to extract date/city/auctioneer/farm/type
 - `models/lot.py` — Pydantic models: `Lot`, `AuctionResult`
 - `prompts/extraction.txt` — PT-BR system prompt for lot extraction
+- `prompts/metadata.txt` — PT-BR system prompt for auction metadata extraction (date, city, auctioneer, farm, type)
 
 ## LLM providers
 
@@ -99,7 +100,7 @@ Model aliases resolved in `extractor._MODEL_ALIASES`:
 
 - Windows are 10 minutes with 1-minute overlap to avoid splitting lots across boundaries
 - Each window sends already-found lot numbers so the LLM skips duplicates
-- If the same lot number appears in multiple windows, fields are merged (first non-null value wins)
+- If the same lot number appears in multiple windows, fields are merged: non-price fields use first-non-null; price fields (`unit_price`, `total_price`) use last-non-null so the final hammer price overwrites an opening ask
 - `_parse_response()` in `extractor.py` tolerates LLM responses with extra text around the JSON array
 
 ## Key data model

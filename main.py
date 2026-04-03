@@ -116,6 +116,8 @@ def cli(url, provider, model, output_dir, transcriber, whisper_model, cpp_model,
     if no_resume:
         _clear_cache(run_dir, video_id)
 
+    video_info = downloader.get_video_info(url, run_dir, video_id)
+
     # ── Stage 1: Download ────────────────────────────────────────────────
     _stage("1/6", "Download")
     t0 = time.time()
@@ -174,6 +176,7 @@ def cli(url, provider, model, output_dir, transcriber, whisper_model, cpp_model,
         client=client,
         prompt_path=PROMPTS_DIR / "metadata.txt",
         output_path=run_dir / f"metadata_{video_id}.json",
+        video_info=video_info,
     )
     _done(t0)
 
@@ -351,6 +354,7 @@ def _done(t0: float) -> None:
 def _clear_cache(run_dir: Path, video_id: str) -> None:
     import shutil
     for name in [
+        f"video_info_{video_id}.json",
         f"transcript_{video_id}.json",
         f"screenshots_{video_id}.json",
         f"ocr_results_{video_id}.json",

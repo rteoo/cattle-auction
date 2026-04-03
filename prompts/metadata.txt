@@ -13,7 +13,7 @@ Retorne um único objeto JSON com exatamente estes campos:
 REGRAS:
 1. Retorne APENAS o objeto JSON, sem texto antes ou depois
 2. Se uma informação não estiver presente, use null
-3. Para "city", use apenas o nome da cidade/município (ex: "Uberaba", "Araguaína", "Campo Grande")
+3. Para "city", use apenas o nome da cidade/município (ex: "Uberaba", "Araguaína", "Campo Grande"). A cidade deve aparecer explicitamente como localização do evento — expressões como "leilão em X", "realizado em X", "município de X", ou menção na tela/logotipo. NÃO use sobrenomes de pessoas (ex: "Resende", "Silva", "Oliveira") como cidade.
 4. Para "auctioneer", use o nome completo da empresa ou pessoa (ex: "Leilões Abreu", "João da Silva Leiloeiro")
 5. Para "date", prefira DD/MM/YYYY; se apenas mês/ano for mencionado, use o que estiver disponível
 6. Para "notes", seja conciso — uma frase ou lista curta com informações relevantes não cobertas pelos outros campos

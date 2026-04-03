@@ -196,6 +196,7 @@ def extract_metadata(
     client: LLMClient,
     prompt_path: Path,
     output_path: Path,
+    video_info: dict | None = None,
 ) -> dict:
     """Extract auction-level metadata (date, city, auctioneer, etc.) from the first windows."""
     if output_path.exists():
@@ -204,8 +205,19 @@ def extract_metadata(
 
     system_prompt = prompt_path.read_text(encoding="utf-8")
 
+    # Prepend video title/description as the most reliable source for city and event name
+    header = ""
+    if video_info:
+        parts = []
+        if video_info.get("title"):
+            parts.append(f"Título do vídeo: {video_info['title']}")
+        if video_info.get("description"):
+            parts.append(f"Descrição do vídeo:\n{video_info['description']}")
+        if parts:
+            header = "\n".join(parts) + "\n\n---\n\n"
+
     # Combine first N windows for metadata context
-    combined = "\n\n".join(
+    combined = header + "\n\n".join(
         f"[{w.label}]\n{w.combined_text}" for w in windows[:_METADATA_WINDOWS]
     )
 
