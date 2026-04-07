@@ -82,7 +82,6 @@ if [ "$SKIP_GITHUB" != "true" ]; then
         print_error "gh not authenticated — run: gh auth login"
         exit 1
     fi
-    $GH_CMD auth setup-git
     print_success "gh CLI authenticated"
 fi
 
@@ -92,12 +91,31 @@ PENDING=$(PATH=/opt/homebrew/bin:$PATH git status --porcelain)
 if [ -n "$PENDING" ]; then
     print_step "Committing pending changes..."
     PATH=/opt/homebrew/bin:$PATH git status --short
+
     if [ "$DRY_RUN" = "true" ]; then
-        print_info "Would commit all changes (git add -A)"
+        print_info "Would commit all tracked changes"
     else
-        PATH=/opt/homebrew/bin:$PATH git add -A
-        PATH=/opt/homebrew/bin:$PATH git commit -m "chore: release changes"
-        print_success "Changes committed"
+        # Stage tracked files only — new files must be explicitly added.
+        # This avoids accidentally committing secrets, PDFs, or other untracked files.
+        PATH=/opt/homebrew/bin:$PATH git add -u
+
+        # Also stage new files in well-known source directories (not data/output)
+        for dir in pipeline/ models/ prompts/ tests/ .github/; do
+            if [ -d "$dir" ]; then
+                PATH=/opt/homebrew/bin:$PATH git add "$dir" 2>/dev/null || true
+            fi
+        done
+        # Stage root config files
+        PATH=/opt/homebrew/bin:$PATH git add .gitignore pyproject.toml \
+            CLAUDE.md release.sh main.py 2>/dev/null || true
+
+        # Check if anything is staged
+        if PATH=/opt/homebrew/bin:$PATH git diff --cached --quiet; then
+            print_info "No relevant changes to commit"
+        else
+            PATH=/opt/homebrew/bin:$PATH git commit -m "chore: pre-release changes"
+            print_success "Changes committed"
+        fi
     fi
 fi
 
@@ -114,26 +132,27 @@ MAJOR=$(echo "$LAST_BARE" | cut -d. -f1)
 MINOR=$(echo "$LAST_BARE" | cut -d. -f2)
 PATCH=$(echo "$LAST_BARE" | cut -d. -f3)
 
-# All commits since last tag (used for counting and bump-type detection)
+# Commits since last tag — EXCLUDE release-machinery commits
 ALL_COMMITS=$(PATH=/opt/homebrew/bin:$PATH git log "${LAST_TAG}..HEAD" --oneline)
+REAL_COMMITS=$(echo "$ALL_COMMITS" | grep -vE "^[a-f0-9]+ chore: (release changes|pre-release changes|bump version to |docs: update CHANGELOG)" || true)
 COMMIT_COUNT=$(echo "$ALL_COMMITS" | grep -c . || true)
+REAL_COUNT=$(echo "$REAL_COMMITS" | grep -c . || true)
 
 if [ "$COMMIT_COUNT" -eq 0 ]; then
     print_error "No commits since $LAST_TAG — nothing to release"
     exit 1
 fi
 
-print_info "Commits since $LAST_TAG: $COMMIT_COUNT"
+print_info "Commits since $LAST_TAG: $COMMIT_COUNT ($REAL_COUNT meaningful)"
 echo "$ALL_COMMITS" | while read -r line; do print_dim "$line"; done
 
-# Commits used for release notes — strip script-internal entries
-COMMITS=$(echo "$ALL_COMMITS" \
-    | grep -vE "chore: (release changes|bump version to )" || true)
+if [ "$REAL_COUNT" -eq 0 ]; then
+    print_error "Only release-machinery commits since $LAST_TAG — nothing meaningful to release"
+    exit 1
+fi
 
 if [ -z "$VERSION" ]; then
-    # feat: (new feature) → bump minor, reset patch
-    # fix:/chore:/docs:/refactor:/etc → bump patch only
-    if echo "$ALL_COMMITS" | grep -qE "^[a-f0-9]+ feat(\([^)]+\))?(!)?:"; then
+    if echo "$REAL_COMMITS" | grep -qE "^[a-f0-9]+ feat(\([^)]+\))?(!)?:"; then
         BUMP_TYPE="minor"
         AUTO_VERSION="${MAJOR}.$((MINOR + 1)).0"
     else
@@ -160,7 +179,7 @@ fi
 
 print_success "Version: $VERSION_TAG"
 
-# ── Update pyproject.toml ─────────────────────────────────────────────────────
+# ── Update pyproject.toml ────────────────────────────────────────────────────
 
 print_step "Updating pyproject.toml to $VERSION_BARE..."
 
@@ -169,8 +188,14 @@ if [ "$DRY_RUN" = "true" ]; then
 else
     sed -i '' "s/^version = \".*\"/version = \"$VERSION_BARE\"/" pyproject.toml
     PATH=/opt/homebrew/bin:$PATH git add pyproject.toml
-    PATH=/opt/homebrew/bin:$PATH git commit -m "chore: bump version to $VERSION_BARE"
-    print_success "pyproject.toml updated and committed"
+
+    # Only commit if there are actually changes (version might already be correct)
+    if PATH=/opt/homebrew/bin:$PATH git diff --cached --quiet; then
+        print_info "Version already at $VERSION_BARE, no changes needed"
+    else
+        PATH=/opt/homebrew/bin:$PATH git commit -m "chore: bump version to $VERSION_BARE"
+        print_success "pyproject.toml updated and committed"
+    fi
 fi
 
 # ── Build release notes ───────────────────────────────────────────────────────
@@ -181,65 +206,185 @@ RELEASE_NOTES=""
 
 # 1. Try to extract from CHANGELOG — look for ## [X.Y.Z] or ## [Unreleased]
 if [ -f "$CHANGELOG" ]; then
-    # Try exact version match first
-    RELEASE_NOTES=$(awk "/^## \[${VERSION_BARE}\]/,/^## \[/" "$CHANGELOG" \
+    CHANGELOG_ENTRY=$(awk "/^## \[${VERSION_BARE}\]/,/^## \[/" "$CHANGELOG" \
         | sed '$d' | sed '1d' | sed '/^[[:space:]]*$/d' || true)
 
-    # Fall back to [Unreleased] section
-    if [ -z "$RELEASE_NOTES" ]; then
-        RELEASE_NOTES=$(awk '/^## \[Unreleased\]/,/^## \[/' "$CHANGELOG" \
+    if [ -z "$CHANGELOG_ENTRY" ]; then
+        CHANGELOG_ENTRY=$(awk '/^## \[Unreleased\]/,/^## \[/' "$CHANGELOG" \
             | sed '$d' | sed '1d' | sed '/^[[:space:]]*$/d' || true)
     fi
+    [ -n "$CHANGELOG_ENTRY" ] && RELEASE_NOTES="$CHANGELOG_ENTRY"
 fi
 
-# 2. Fall back to git log grouped by type
+# 2. Generate from commits if no CHANGELOG entry
 if [ -z "$RELEASE_NOTES" ]; then
     print_info "No CHANGELOG entry found — generating from commits"
 
-    # Build a rich entry per commit: subject (with conventional prefix stripped)
-    # followed by any body lines, indented.
-    _format_commits() {
-        local pattern="$1"
-        local hashes
-        hashes=$(echo "$COMMITS" | grep -E "^[a-f0-9]+ ${pattern}" | awk '{print $1}' || true)
-        [ -z "$hashes" ] && return
-        while IFS= read -r hash; do
-            [ -z "$hash" ] && continue
-            local subject body entry
-            subject=$(PATH=/opt/homebrew/bin:$PATH git log -1 --format="%s" "$hash" \
-                | sed -E 's/^(feat|fix|docs|refactor|chore|test|perf|ci|style)(\([^)]+\))?(!)?: //')
-            body=$(PATH=/opt/homebrew/bin:$PATH git log -1 --format="%b" "$hash" | sed '/^[[:space:]]*$/d')
-            entry="- ${subject}"
-            if [ -n "$body" ]; then
-                entry="${entry}"$'\n'"$(echo "$body" | sed 's/^/  /')"
-            fi
-            echo "$entry"
-        done <<< "$hashes"
+    # Collect full diffs for LLM context
+    DIFF_STAT=$(PATH=/opt/homebrew/bin:$PATH git diff "${LAST_TAG}..HEAD" --stat)
+
+    # Use meaningful commits only, excluding release-machinery
+    SUBJECTS=$(PATH=/opt/homebrew/bin:$PATH git log "${LAST_TAG}..HEAD" \
+        --format="%s" \
+        | grep -vE "^chore: (release changes|pre-release changes|bump version to )")
+
+    if [ -z "$SUBJECTS" ]; then
+        SUBJECTS="Maintenance release"
+    fi
+
+    # Format one commit line: strip type prefix, capitalize, append scope in backticks
+    fmt_line() {
+        local raw="$1"
+        local scope msg
+        scope=$(echo "$raw" | sed -nE 's/^[a-z]+\(([^)]+)\)(!)?:.*/\1/p')
+        msg=$(echo "$raw" | sed -E 's/^[a-z]+(\([^)]+\))?(!)?:[[:space:]]*//')
+        msg=$(echo "$msg" | awk '{$1=toupper(substr($1,1,1))substr($1,2); print}')
+        if [ -n "$scope" ]; then
+            echo "- $msg (\`$scope\`)"
+        else
+            echo "- $msg"
+        fi
     }
 
-    FEATURES=$(_format_commits "feat(\([^)]+\))?(!)?:" || true)
-    FIXES=$(_format_commits "fix(\([^)]+\))?:" || true)
-    OTHER=$(echo "$COMMITS" \
-        | grep -vE "^[a-f0-9]+ (feat|fix)(\([^)]+\))?(!)?:" \
-        | awk '{print $1}' \
-        | while IFS= read -r hash; do
-            [ -z "$hash" ] && continue
-            subject=$(PATH=/opt/homebrew/bin:$PATH git log -1 --format="%s" "$hash" \
-                | sed -E 's/^(docs|refactor|chore|test|perf|ci|style)(\([^)]+\))?(!)?: //')
-            body=$(PATH=/opt/homebrew/bin:$PATH git log -1 --format="%b" "$hash" | sed '/^[[:space:]]*$/d')
-            entry="- ${subject}"
-            [ -n "$body" ] && entry="${entry}"$'\n'"$(echo "$body" | sed 's/^/  /')"
-            echo "$entry"
-          done || true)
+    build_section() {
+        local header="$1" commits="$2" out=""
+        [ -z "$commits" ] && return
+        out="### $header"$'\n'
+        while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            out+=$(fmt_line "$line")$'\n'
+        done <<< "$commits"
+        echo "$out"
+    }
 
-    [ -n "$FEATURES" ] && RELEASE_NOTES="${RELEASE_NOTES}### Added"$'\n'"${FEATURES}"$'\n\n'
-    [ -n "$FIXES" ]    && RELEASE_NOTES="${RELEASE_NOTES}### Fixed"$'\n'"${FIXES}"$'\n\n'
-    [ -n "$OTHER" ]    && RELEASE_NOTES="${RELEASE_NOTES}### Other"$'\n'"${OTHER}"$'\n'
+    FEATS=$(echo "$SUBJECTS"    | grep -E "^feat(\([^)]+\))?(!)?:"     || true)
+    FIXES=$(echo "$SUBJECTS"    | grep -E "^fix(\([^)]+\))?:"          || true)
+    PERF=$(echo "$SUBJECTS"     | grep -E "^perf(\([^)]+\))?:"         || true)
+    REFACTOR=$(echo "$SUBJECTS" | grep -E "^refactor(\([^)]+\))?:"     || true)
+    STYLE=$(echo "$SUBJECTS"    | grep -E "^style(\([^)]+\))?:"        || true)
+    DOCS=$(echo "$SUBJECTS"     | grep -E "^docs(\([^)]+\))?:"         || true)
+    CHORE=$(echo "$SUBJECTS"    | grep -E "^chore(\([^)]+\))?:"        || true)
+    OTHER=$(echo "$SUBJECTS"    | grep -vE "^(feat|fix|perf|refactor|style|docs|test|chore|ci|build)(\([^)]+\))?(!)?:" || true)
+
+    COMMIT_NOTES=""
+    S=$(build_section "✨ New Features"   "$FEATS")
+    [ -n "$S" ] && COMMIT_NOTES+="$S"$'\n'
+    S=$(build_section "🐛 Bug Fixes"      "$FIXES")
+    [ -n "$S" ] && COMMIT_NOTES+="$S"$'\n'
+    S=$(build_section "⚡ Performance"    "$PERF")
+    [ -n "$S" ] && COMMIT_NOTES+="$S"$'\n'
+    S=$(build_section "♻️ Improvements"   "$REFACTOR")
+    [ -n "$S" ] && COMMIT_NOTES+="$S"$'\n'
+    S=$(build_section "💅 UI & Styling"   "$STYLE")
+    [ -n "$S" ] && COMMIT_NOTES+="$S"$'\n'
+    S=$(build_section "📚 Documentation"  "$DOCS")
+    [ -n "$S" ] && COMMIT_NOTES+="$S"$'\n'
+    S=$(build_section "🔧 Maintenance"    "$CHORE")
+    [ -n "$S" ] && COMMIT_NOTES+="$S"$'\n'
+    S=$(build_section "📦 Other"          "$OTHER")
+    [ -n "$S" ] && COMMIT_NOTES+="$S"$'\n'
+
+    # Fallback if all sections ended up empty
+    if [ -z "$COMMIT_NOTES" ]; then
+        COMMIT_NOTES="### 📦 Changes"$'\n'
+        while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            COMMIT_NOTES+="- $line"$'\n'
+        done <<< "$SUBJECTS"
+    fi
+
+    # 3. Generate a human-readable summary using local Ollama
+    OLLAMA_URL="http://localhost:11434/v1/chat/completions"
+    OLLAMA_MODEL="qwen3.5:4b"
+    HUMAN_SUMMARY=""
+    if curl -sf "$OLLAMA_URL" -X POST -H "Content-Type: application/json" \
+         -d '{"model":"'"$OLLAMA_MODEL"'","messages":[{"role":"user","content":"ping"}],"max_tokens":1}' \
+         &>/dev/null; then
+        print_info "Generating release summary with Ollama ($OLLAMA_MODEL)..."
+
+        # Build JSON payload safely using node to escape strings
+        PAYLOAD=$(PATH=/opt/homebrew/bin:$PATH node -e "
+            const prompt = 'You are writing a release summary for a cattle auction video pipeline CLI (Python, yt-dlp, Whisper, OCR, LLM extraction).\n\n' +
+                'Version: $VERSION_TAG (previous: $LAST_TAG)\n\n' +
+                'Commits:\n' + $(echo "$SUBJECTS" | PATH=/opt/homebrew/bin:$PATH node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>console.log(JSON.stringify(d)))") + '\n\n' +
+                'Files changed:\n' + $(echo "$DIFF_STAT" | PATH=/opt/homebrew/bin:$PATH node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>console.log(JSON.stringify(d)))") + '\n\n' +
+                'Write a concise 1-3 sentence summary of what changed in this release and why it matters to the user. Focus on the user-facing impact, not implementation details. Write in English. No markdown formatting, just plain text. No thinking tags.';
+            console.log(JSON.stringify({
+                model: '$OLLAMA_MODEL',
+                messages: [{role:'user', content: prompt}],
+                temperature: 0.3,
+                max_tokens: 300
+            }));
+        ")
+
+        RESPONSE=$(curl -sf "$OLLAMA_URL" -X POST \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD" 2>/dev/null || true)
+
+        if [ -n "$RESPONSE" ]; then
+            SUMMARY_RESULT=$(echo "$RESPONSE" | PATH=/opt/homebrew/bin:$PATH node -e "
+                let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{
+                    try {
+                        const r=JSON.parse(d);
+                        let text = r.choices?.[0]?.message?.content ?? '';
+                        // Strip <think>...</think> tags if present
+                        text = text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+                        process.stdout.write(text);
+                    } catch { process.exit(1); }
+                })
+            " 2>/dev/null || true)
+            if [ -n "$SUMMARY_RESULT" ]; then
+                HUMAN_SUMMARY="$SUMMARY_RESULT"
+                print_success "Summary generated"
+            else
+                print_info "Ollama returned empty response — skipping summary"
+            fi
+        else
+            print_info "Ollama request failed — skipping summary"
+        fi
+    else
+        print_info "Ollama not available at $OLLAMA_URL — skipping summary"
+    fi
+
+    if [ -n "$HUMAN_SUMMARY" ]; then
+        RELEASE_NOTES="${HUMAN_SUMMARY}"$'\n\n'"${COMMIT_NOTES}"
+    else
+        RELEASE_NOTES="$COMMIT_NOTES"
+    fi
 fi
 
 print_success "Release notes ready:"
-echo "$RELEASE_NOTES" | head -10
-[ "$(echo "$RELEASE_NOTES" | wc -l)" -gt 10 ] && print_dim "..."
+echo "$RELEASE_NOTES" | head -20
+[ "$(echo "$RELEASE_NOTES" | wc -l)" -gt 20 ] && print_dim "..."
+
+# ── Update CHANGELOG.md ─────────────────────────────────────────────────────
+
+print_step "Updating CHANGELOG.md..."
+
+TODAY=$(date +%Y-%m-%d)
+ENTRY="## [$VERSION_BARE] — $TODAY"$'\n\n'"$RELEASE_NOTES"
+
+if [ "$DRY_RUN" = "true" ]; then
+    print_info "Would prepend entry to CHANGELOG.md"
+else
+    if [ -f "$CHANGELOG" ]; then
+        # Insert after the first line (# Changelog header) or at the top
+        if head -1 "$CHANGELOG" | grep -q "^# "; then
+            HEADER=$(head -1 "$CHANGELOG")
+            BODY=$(tail -n +2 "$CHANGELOG")
+            printf '%s\n\n%s\n%s\n' "$HEADER" "$ENTRY" "$BODY" > "$CHANGELOG"
+        else
+            printf '%s\n\n%s' "$ENTRY" "$(cat "$CHANGELOG")" > "$CHANGELOG"
+        fi
+    else
+        printf '# Changelog\n\n%s\n' "$ENTRY" > "$CHANGELOG"
+    fi
+    PATH=/opt/homebrew/bin:$PATH git add "$CHANGELOG"
+    if ! PATH=/opt/homebrew/bin:$PATH git diff --cached --quiet; then
+        PATH=/opt/homebrew/bin:$PATH git commit -m "docs: update CHANGELOG for $VERSION_TAG"
+        print_success "CHANGELOG.md updated"
+    fi
+fi
 
 # ── Tag ───────────────────────────────────────────────────────────────────────
 
