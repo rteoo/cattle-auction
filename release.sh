@@ -134,7 +134,7 @@ PATCH=$(echo "$LAST_BARE" | cut -d. -f3)
 
 # Commits since last tag — EXCLUDE release-machinery commits
 ALL_COMMITS=$(PATH=/opt/homebrew/bin:$PATH git log "${LAST_TAG}..HEAD" --oneline)
-REAL_COMMITS=$(echo "$ALL_COMMITS" | grep -vE "^[a-f0-9]+ chore: (release changes|pre-release changes|bump version to |docs: update CHANGELOG)" || true)
+REAL_COMMITS=$(echo "$ALL_COMMITS" | grep -vE "^[a-f0-9]+ chore: (release changes|bump version to |docs: update CHANGELOG)" || true)
 COMMIT_COUNT=$(echo "$ALL_COMMITS" | grep -c . || true)
 REAL_COUNT=$(echo "$REAL_COMMITS" | grep -c . || true)
 
@@ -226,7 +226,7 @@ if [ -z "$RELEASE_NOTES" ]; then
     # Use meaningful commits only, excluding release-machinery
     SUBJECTS=$(PATH=/opt/homebrew/bin:$PATH git log "${LAST_TAG}..HEAD" \
         --format="%s" \
-        | grep -vE "^chore: (release changes|pre-release changes|bump version to )")
+        | grep -vE "^chore: (release changes|bump version to )")
 
     if [ -z "$SUBJECTS" ]; then
         SUBJECTS="Maintenance release"
