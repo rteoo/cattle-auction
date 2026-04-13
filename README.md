@@ -20,9 +20,14 @@ Each stage is checkpointed. Interrupted runs resume automatically from where the
 - Python 3.11+
 - `uv` for dependency management
 - `ffmpeg` installed on the system
+- `deno` runtime (used by yt-dlp for YouTube download)
 
 ```bash
-brew install ffmpeg
+# macOS
+brew install ffmpeg deno
+
+# Windows
+winget install Gyan.FFmpeg DenoLand.Deno
 ```
 
 ## Setup
@@ -38,13 +43,12 @@ Fill in your API keys in `.env`:
 
 ```bash
 # .env
-ANTHROPIC_API_KEY=sk-...
 OPENAI_API_KEY=sk-...
 GROQ_API_KEY=gsk-...
-OPENROUTER_API_KEY=sk-or-...
+OPENROUTER_API_KEY=sk-or-...   # only if using --provider openrouter
 ```
 
-Keys are loaded automatically from `.env` on every run. Only set the keys you need — the defaults use OpenAI, so `OPENAI_API_KEY` is the minimum required.
+Keys are loaded automatically from `.env` on every run. Only set the keys you need — the defaults use OpenAI + Groq, so `OPENAI_API_KEY` and `GROQ_API_KEY` are the minimum required.
 
 ## Usage
 
@@ -73,8 +77,8 @@ whisper-cpp-download-ggml-model medium
 | `--transcriber` | `groq` | Transcription backend: `mlx`, `cpp`, or `groq` |
 | `--whisper-model` | `medium` | Model size for mlx/cpp: `tiny` / `base` / `small` / `medium` / `large-v3` |
 | `--cpp-model` | auto | Path to ggml model file (whisper.cpp only) |
-| `--provider` | `openai` | LLM provider: `openai`, `claude`, or `openrouter` |
-| `--model` | `gpt-4o-mini` | Model name or alias. OpenAI: `gpt-4o-mini`, `gpt-4.1-nano`, `gpt-5-nano`. Alias: `gemini-2.5-flash-lite` |
+| `--provider` | `openai` | LLM provider: `openai`, `openrouter`, or `ollama` |
+| `--model` | `gpt-4.1-nano` | Model name or alias. OpenAI: `gpt-4.1-nano`, `gpt-4o-mini`, `gpt-5-nano`. Alias: `gemini-2.5-flash-lite` |
 | `--screenshot-interval` | `30` | Seconds between captured frames |
 | `--output-dir` | `output` | Base directory for all generated files |
 | `--no-resume` | off | Ignore cached stages and rerun everything |
@@ -85,23 +89,22 @@ whisper-cpp-download-ggml-model medium
 ### Examples
 
 ```bash
-# Default: All outputs (metadata, summary, table)
+# Default: gpt-4.1-nano extraction with all outputs
 uv run python main.py "https://www.youtube.com/watch?v=..."
 
 # Local MLX transcription (Apple Silicon only, requires --extra local)
 uv run python main.py "https://www.youtube.com/watch?v=..." --transcriber mlx
 
-# OpenRouter with Gemini (alias)
-uv run python main.py "https://www.youtube.com/watch?v=..." \
-  --provider openrouter --model gemini-2.5-flash-lite
+# OpenRouter with free Gemma model
+uv run python main.py "https://www.youtube.com/watch?v=..." --provider openrouter
 
-# Claude extraction
-uv run python main.py "https://www.youtube.com/watch?v=..." --provider claude
+# Ollama with Qwen (requires local Ollama server)
+uv run python main.py "https://www.youtube.com/watch?v=..." --provider ollama
+
+# Use a specific OpenAI model
+uv run python main.py "https://www.youtube.com/watch?v=..." --model gpt-4o-mini
 
 # Show only metadata and summary (no table)
-uv run python main.py "https://www.youtube.com/watch?v=..." --no-table
-
-# Show only the count (metadata/summary, no table)
 uv run python main.py "https://www.youtube.com/watch?v=..." --no-table
 
 # Show only the table (no metadata or summary)
@@ -155,9 +158,31 @@ All files are written to `output/<video_id>/`:
 | OCR (~600 frames) | ~5–10 min | same |
 | LLM extraction (~30 windows) | ~3–8 min | same |
 
+## LLM providers
+
+| Provider | Flag | Default model | Auth |
+|---|---|---|---|
+| OpenAI | `--provider openai` | `gpt-4.1-nano` | `OPENAI_API_KEY` |
+| OpenRouter | `--provider openrouter` | `google/gemma-4-31b-it:free` | `OPENROUTER_API_KEY` |
+| Ollama | `--provider ollama` | `qwen3.5:397b-cloud` | None (local server) |
+
+## Model benchmark
+
+Tested on a 5-hour auction video (34 extraction windows, ~65 actual lots):
+
+| Model | Lots found | Animals | Sold detected | Avg price (R$) | Time | Input $/1M | Output $/1M |
+|---|---|---|---|---|---|---|---|
+| **gpt-4.1-nano** | **63** | **1,341** | 56 | 3,265 | **92s** | **$0.10** | **$0.40** |
+| gpt-4.1-mini | 63 | 793 | 59 | 3,325 | 130s | $0.20 | $0.80 |
+| gpt-5.4-nano | 62 | 741 | 54 | 3,240 | 95s | $0.20 | $1.25 |
+| gpt-4o-mini | 59 | 711 | 56 | 3,368 | 240s | $0.15 | $0.60 |
+| gpt-5-mini | 63 | 740 | 47 | 3,441 | 993s | $0.25 | $2.00 |
+
+**gpt-4.1-nano** is the default: fastest, cheapest, and most accurate animal count. It matches the lot count of models 2-5x more expensive while being 2.6x faster than gpt-4o-mini.
+
 ## Testing
 
-The project includes a comprehensive unit test suite with 86 tests covering:
+The project includes a comprehensive unit test suite with 93 tests covering:
 
 - **Model validation** — `Lot` and `AuctionResult` data validation, Brazilian number format coercion, price mis-parsing guards, required field checks
 - **LLM response parsing** — JSON extraction with extra-text tolerance, lot merging, sold field detection

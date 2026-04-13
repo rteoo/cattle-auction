@@ -29,10 +29,10 @@ OPENROUTER_API_KEY=
 uv run python main.py <youtube_url> [OPTIONS]
 
 # Options:
-#   --provider      openai|claude|openrouter   (default: openai)
-#   --model         model name or alias        (default: gpt-4o-mini / claude-sonnet-4-6 / google/gemini-2.5-flash-lite-preview-09-2025)
-#                   OpenAI models: gpt-4o-mini, gpt-4.1-nano, gpt-5-nano
-#                   alias: gemini-2.5-flash-lite → google/gemini-2.5-flash-lite-preview-09-2025
+#   --provider      openai|openrouter|ollama    (default: openai)
+#   --model         model name or alias        (default: gpt-4.1-nano / google/gemma-4-31b-it:free / qwen3.5:397b-cloud)
+#                   OpenAI models: gpt-4.1-nano, gpt-4o-mini, gpt-5-nano
+#                   alias: gemini-2.5-flash-lite -> google/gemini-2.5-flash-lite-preview-09-2025
 #   --transcriber        mlx|cpp|groq               (default: groq)
 #   --whisper-model      medium                     (default: medium, used by mlx and cpp)
 #   --cpp-model          /path/to/ggml.bin         (whisper.cpp only, auto-detected if omitted)
@@ -87,14 +87,14 @@ Each stage writes a checkpoint file. On rerun, if the file exists the stage is s
 
 ## LLM providers
 
-| Provider | Flag | Auth | Notes |
-|---|---|---|---|
-| OpenAI | `--provider openai` | `OPENAI_API_KEY` | Default |
-| Claude | `--provider claude` | `ANTHROPIC_API_KEY` | Uses Anthropic SDK |
-| OpenRouter | `--provider openrouter` | `OPENROUTER_API_KEY` | OpenAI-compatible SDK, custom base URL |
+| Provider | Flag | Auth | Default model | Notes |
+|---|---|---|---|---|
+| OpenAI | `--provider openai` | `OPENAI_API_KEY` | gpt-4.1-nano | Default provider |
+| OpenRouter | `--provider openrouter` | `OPENROUTER_API_KEY` | google/gemma-4-31b-it:free | OpenAI-compatible SDK, custom base URL |
+| Ollama | `--provider ollama` | — | qwen3.5:397b-cloud | Local/cloud via http://127.0.0.1:11434 |
 
 Model aliases resolved in `extractor._MODEL_ALIASES`:
-- `gemini-2.5-flash-lite` → `google/gemini-2.5-flash-lite-preview-09-2025`
+- `gemini-2.5-flash-lite` -> `google/gemini-2.5-flash-lite-preview-09-2025`
 
 ## LLM extraction details
 

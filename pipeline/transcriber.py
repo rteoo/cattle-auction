@@ -159,7 +159,7 @@ def _transcribe_cpp(
         if proc.returncode != 0:
             raise subprocess.CalledProcessError(proc.returncode, "whisper-cli")
 
-        data = json.loads(out_base.with_suffix(".json").read_text())
+        data = json.loads(out_base.with_suffix(".json").read_text(encoding="utf-8"))
 
     # whisper.cpp JSON: {"transcription": [{"timestamps": {"from": "HH:MM:SS,mmm"}, "text": "..."}]}
     segments = []
@@ -312,9 +312,9 @@ def _audio_duration(path: Path) -> float:
 
 def _save(segments: list[Segment], path: Path) -> None:
     data = [{"start": s.start, "end": s.end, "text": s.text} for s in segments]
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def _load(path: Path) -> list[Segment]:
-    data = json.loads(path.read_text())
+    data = json.loads(path.read_text(encoding="utf-8"))
     return [Segment(**d) for d in data]

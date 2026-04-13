@@ -24,7 +24,7 @@ def get_video_info(url: str, output_dir: Path, video_id: str) -> dict:
     """Fetch and cache video title + description from YouTube."""
     cache_path = output_dir / f"video_info_{video_id}.json"
     if cache_path.exists():
-        return json.loads(cache_path.read_text())
+        return json.loads(cache_path.read_text(encoding="utf-8"))
 
     with yt_dlp.YoutubeDL({"quiet": True}) as ydl:
         info = ydl.extract_info(url, download=False)
@@ -33,7 +33,7 @@ def get_video_info(url: str, output_dir: Path, video_id: str) -> dict:
         "title": info.get("title", ""),
         "description": (info.get("description") or "")[:2000],  # cap length
     }
-    cache_path.write_text(json.dumps(result, ensure_ascii=False, indent=2))
+    cache_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     return result
 
 

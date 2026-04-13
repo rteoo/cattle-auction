@@ -134,9 +134,9 @@ def _fmt(seconds: int) -> str:
 
 def _save(screenshots: list[Screenshot], path: Path) -> None:
     data = [{"seconds": s.seconds, "timestamp_str": s.timestamp_str, "path": str(s.path)} for s in screenshots]
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def _load(path: Path, screenshots_dir: Path) -> list[Screenshot]:
-    data = json.loads(path.read_text())
+    data = json.loads(path.read_text(encoding="utf-8"))
     return [Screenshot(seconds=d["seconds"], timestamp_str=d["timestamp_str"], path=Path(d["path"])) for d in data]

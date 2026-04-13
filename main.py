@@ -24,7 +24,7 @@ PROMPTS_DIR = Path(__file__).parent / "prompts"
 @click.argument("url")
 @click.option(
     "--provider",
-    type=click.Choice(["claude", "openai", "openrouter"]),
+    type=click.Choice(["openai", "openrouter", "ollama"]),
     default="openai",
     show_default=True,
     help="LLM provider for lot extraction.",
@@ -33,9 +33,9 @@ PROMPTS_DIR = Path(__file__).parent / "prompts"
     "--model",
     default=None,
     help=(
-        "Model name or alias. Defaults: gpt-4o-mini (openai), claude-sonnet-4-6 (claude), "
-        "google/gemini-2.5-flash-lite-preview-09-2025 (openrouter). "
-        "OpenAI models: gpt-4o-mini, gpt-4.1-nano, gpt-5-nano. "
+        "Model name or alias. Defaults: gpt-4.1-nano (openai), "
+        "google/gemma-4-31b-it:free (openrouter), qwen3.5:397b-cloud (ollama). "
+        "OpenAI models: gpt-4.1-nano, gpt-4o-mini, gpt-5-nano. "
         "Alias: gemini-2.5-flash-lite."
     ),
 )
@@ -195,7 +195,8 @@ def cli(url, provider, model, output_dir, transcriber, whisper_model, cpp_model,
     )
     summary_path = run_dir / f"result_{video_id}.json"
     summary_path.write_text(
-        json.dumps(result.model_dump(), ensure_ascii=False, indent=2)
+        json.dumps(result.model_dump(), ensure_ascii=False, indent=2),
+        encoding="utf-8",
     )
 
     console.rule("[bold green]Done")

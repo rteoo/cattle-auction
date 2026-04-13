@@ -11,9 +11,9 @@ _METADATA_WINDOWS = 3
 
 
 _DEFAULT_MODELS = {
-    "claude": "claude-sonnet-4-6",
-    "openai": "gpt-4o-mini",
-    "openrouter": "google/gemini-2.5-flash-lite-preview-09-2025",
+    "openai": "gpt-4.1-nano",
+    "openrouter": "google/gemma-4-31b-it:free",
+    "ollama": "qwen3.5:397b-cloud",
 }
 
 # Short aliases accepted by --model
@@ -27,11 +27,7 @@ class LLMClient:
         self.provider = provider
         self.model = _MODEL_ALIASES.get(model, model)  # resolve alias
 
-        if provider == "claude":
-            import anthropic
-            self._client = anthropic.Anthropic()
-
-        elif provider == "openai":
+        if provider == "openai":
             import openai
             self._client = openai.OpenAI()
 
@@ -45,29 +41,41 @@ class LLMClient:
                 base_url="https://openrouter.ai/api/v1",
             )
 
+        elif provider == "ollama":
+            import openai
+            self._client = openai.OpenAI(
+                api_key="ollama",
+                base_url="http://127.0.0.1:11434/v1",
+            )
+
         else:
-            raise ValueError(f"Unknown provider: {provider!r}. Use 'claude', 'openai', or 'openrouter'.")
+            raise ValueError(f"Unknown provider: {provider!r}. Use 'openai', 'openrouter', or 'ollama'.")
 
-    def complete(self, system: str, user: str) -> str:
-        if self.provider == "claude":
-            msg = self._client.messages.create(
-                model=self.model,
-                max_tokens=4096,
-                system=system,
-                messages=[{"role": "user", "content": user}],
-            )
-            return msg.content[0].text
+    def complete(self, system: str, user: str, max_retries: int = 3) -> str:
+        import time as _time
 
-        else:  # openai + openrouter share the same SDK interface
-            resp = self._client.chat.completions.create(
-                model=self.model,
-                max_tokens=4096,
-                messages=[
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user},
-                ],
-            )
-            return resp.choices[0].message.content
+        # openai, openrouter, and ollama all share the same SDK interface
+        # Newer OpenAI models (gpt-5-*) require max_completion_tokens instead of max_tokens
+        token_param = "max_completion_tokens" if self.model.startswith("gpt-5") else "max_tokens"
+
+        for attempt in range(max_retries + 1):
+            try:
+                resp = self._client.chat.completions.create(
+                    model=self.model,
+                    **{token_param: 4096},
+                    messages=[
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": user},
+                    ],
+                )
+                return resp.choices[0].message.content
+            except Exception as e:
+                if "429" in str(e) and attempt < max_retries:
+                    wait = 2 ** attempt * 5  # 5s, 10s, 20s
+                    print(f"    Rate limited, retrying in {wait}s...")
+                    _time.sleep(wait)
+                    continue
+                raise
 
 
 def extract_lots(
@@ -107,7 +115,7 @@ def extract_lots(
         for lot in new_lots:
             _merge(lots_by_number, lot)
 
-        print(f"    → {len(new_lots)} lot(s) found, {len(lots_by_number)} total so far.")
+        print(f"    -> {len(new_lots)} lot(s) found, {len(lots_by_number)} total so far.")
 
     lots = sorted(lots_by_number.values(), key=lambda l: l.lot_number)
     _save(lots, output_path)
@@ -183,11 +191,11 @@ def _merge(lots_by_number: dict[int, Lot], new_lot: Lot) -> None:
 
 def _save(lots: list[Lot], path: Path) -> None:
     data = [lot.model_dump() for lot in lots]
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2))
+    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def _load(path: Path) -> list[Lot]:
-    data = json.loads(path.read_text())
+    data = json.loads(path.read_text(encoding="utf-8"))
     return [Lot(**d) for d in data]
 
 
@@ -201,7 +209,7 @@ def extract_metadata(
     """Extract auction-level metadata (date, city, auctioneer, etc.) from the first windows."""
     if output_path.exists():
         print(f"  Auction metadata already extracted, loading from cache.")
-        return json.loads(output_path.read_text())
+        return json.loads(output_path.read_text(encoding="utf-8"))
 
     system_prompt = prompt_path.read_text(encoding="utf-8")
 
@@ -234,7 +242,7 @@ def extract_metadata(
         print(f"  WARNING: Metadata extraction failed: {e}")
         metadata = {}
 
-    output_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2))
+    output_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
     return metadata
 
 

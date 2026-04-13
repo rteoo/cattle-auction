@@ -19,7 +19,7 @@ def run_ocr(
     """
     if output_path.exists():
         print(f"  OCR results already exist, loading from cache.")
-        return json.loads(output_path.read_text())
+        return json.loads(output_path.read_text(encoding="utf-8"))
 
     from rapidocr_onnxruntime import RapidOCR
 
@@ -58,5 +58,5 @@ def run_ocr(
 
             results[shot.timestamp_str] = lines
 
-    output_path.write_text(json.dumps(results, ensure_ascii=False, indent=2))
+    output_path.write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
     return results
