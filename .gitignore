@@ -7,3 +7,4 @@ output/
 *.egg-info/
 dist/
 .env
+bench_results/

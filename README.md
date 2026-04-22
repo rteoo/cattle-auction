@@ -164,7 +164,6 @@ All files are written to `output/<video_id>/`:
 |---|---|---|---|
 | OpenAI | `--provider openai` | `gpt-4.1-nano` | `OPENAI_API_KEY` |
 | OpenRouter | `--provider openrouter` | `google/gemma-4-31b-it:free` | `OPENROUTER_API_KEY` |
-| Ollama | `--provider ollama` | `qwen3.5:397b-cloud` | None (local server) |
 
 ## Model benchmark
 
@@ -174,8 +173,8 @@ Tested on a 5-hour auction video (34 extraction windows, ~65 actual lots):
 |---|---|---|---|---|---|---|---|
 | **gpt-4.1-nano** | **63** | **1,341** | 56 | 3,265 | **92s** | **$0.10** | **$0.40** |
 | gpt-4.1-mini | 63 | 793 | 59 | 3,325 | 130s | $0.20 | $0.80 |
-| gpt-5.4-nano | 62 | 741 | 54 | 3,240 | 95s | $0.20 | $1.25 |
 | gpt-4o-mini | 59 | 711 | 56 | 3,368 | 240s | $0.15 | $0.60 |
+| gpt-5.4-nano | 62 | 741 | 54 | 3,240 | 95s | $0.20 | $1.25 |
 | gpt-5-mini | 63 | 740 | 47 | 3,441 | 993s | $0.25 | $2.00 |
 
 **gpt-4.1-nano** is the default: fastest, cheapest, and most accurate animal count. It matches the lot count of models 2-5x more expensive while being 2.6x faster than gpt-4o-mini.

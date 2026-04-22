@@ -29,10 +29,9 @@ OPENROUTER_API_KEY=
 uv run python main.py <youtube_url> [OPTIONS]
 
 # Options:
-#   --provider      openai|openrouter|ollama    (default: openai)
-#   --model         model name or alias        (default: gpt-4.1-nano / google/gemma-4-31b-it:free / qwen3.5:397b-cloud)
-#                   OpenAI models: gpt-4.1-nano, gpt-4o-mini, gpt-5-nano
-#                   alias: gemini-2.5-flash-lite -> google/gemini-2.5-flash-lite-preview-09-2025
+#   --provider      openrouter|openai    (default: openrouter)
+#                   openrouter → Gemini 2.5 Flash-Lite Preview (default, fastest/cheapest)
+#                   openai     → GPT-4.1 Mini (alternative, highest accuracy)
 #   --transcriber        mlx|cpp|groq               (default: groq)
 #   --whisper-model      medium                     (default: medium, used by mlx and cpp)
 #   --cpp-model          /path/to/ggml.bin         (whisper.cpp only, auto-detected if omitted)
@@ -43,6 +42,23 @@ uv run python main.py <youtube_url> [OPTIONS]
 #   --table / --no-table                          (default: on, show full lots table)
 #   --output-dir         output                    (base directory)
 ```
+
+## LLM providers
+
+Two options, chosen by benchmark (5 videos × 10 models against a human reference). See `bench/` for the analysis.
+
+| Provider | Model | Cost/video | Speed | Coverage | Accuracy (MAPE) |
+|---|---|---:|---:|---:|---:|
+| **openrouter** (default) | `google/gemini-2.5-flash-lite-preview-09-2025` | ~$0.05 | 13-24s | 92-100% | 1.9-2.0% |
+| openai (alt) | `gpt-4.1-mini` | ~$0.13 | 31s | 100% | 0.1% |
+
+Pricing reference:
+- **Gemini 2.5 Flash-Lite Preview** (OpenRouter): $0.10/M input · $0.40/M output · 1M context · ultra-low latency
+- **GPT-4.1 Mini** (OpenAI): $0.40/M input · $1.60/M output · 1M context · strong instruction following
+
+Required env vars:
+- `OPENROUTER_API_KEY` (for default)
+- `OPENAI_API_KEY` (for alt)
 
 ## Transcription backends
 
@@ -80,21 +96,10 @@ Each stage writes a checkpoint file. On rerun, if the file exists the stage is s
 - `pipeline/screenshotter.py` — ffmpeg frame extraction every N seconds; streams `-progress pipe:1` to show a Rich progress bar
 - `pipeline/ocr.py` — RapidOCR (ONNX-based) on all screenshots with Rich progress bar; no native PaddlePaddle dependency
 - `pipeline/aggregator.py` — merges transcript segments + OCR into 10-minute overlapping windows
-- `pipeline/extractor.py` — sends windows to LLM, parses JSON response, deduplicates by lot_number; supports model aliases via `_MODEL_ALIASES`; also runs `extract_metadata()` on first 3 windows to extract date/city/auctioneer/farm/type
+- `pipeline/extractor.py` — sends windows to LLM, parses JSON response, deduplicates by lot_number; supports two providers (`openrouter` default, `openai` alt) resolved via `_DEFAULT_MODELS`; also runs `extract_metadata()` on first 3 windows to extract date/city/auctioneer/farm/type
 - `models/lot.py` — Pydantic models: `Lot`, `AuctionResult`
 - `prompts/extraction.txt` — PT-BR system prompt for lot extraction
 - `prompts/metadata.txt` — PT-BR system prompt for auction metadata extraction (date, city, auctioneer, farm, type)
-
-## LLM providers
-
-| Provider | Flag | Auth | Default model | Notes |
-|---|---|---|---|---|
-| OpenAI | `--provider openai` | `OPENAI_API_KEY` | gpt-4.1-nano | Default provider |
-| OpenRouter | `--provider openrouter` | `OPENROUTER_API_KEY` | google/gemma-4-31b-it:free | OpenAI-compatible SDK, custom base URL |
-| Ollama | `--provider ollama` | — | qwen3.5:397b-cloud | Local/cloud via http://127.0.0.1:11434 |
-
-Model aliases resolved in `extractor._MODEL_ALIASES`:
-- `gemini-2.5-flash-lite` -> `google/gemini-2.5-flash-lite-preview-09-2025`
 
 ## LLM extraction details
 

@@ -89,3 +89,19 @@ ATENÇÃO — UM LOTE = UMA NEGOCIAÇÃO COMPLETA:
 - O unit_price correto é o ÚLTIMO preço aceito (preço do martelo), não o preço de abertura
 - Se o mesmo número de lote aparecer em múltiplas janelas com preços diferentes, mantenha o preço da janela mais recente (preço final batido)
 - Não crie lotes duplicados pelo fato de o preço ter mudado durante a negociação
+- NÃO retorne o mesmo lote múltiplas vezes na mesma resposta — consolide em UM único objeto com o preço final
+
+ATENÇÃO — INVARIANTES OBRIGATÓRIAS (VALIDADAS A POSTERIORI):
+- total_price DEVE ser aproximadamente igual a unit_price × num_animals. Ex: 50 animais a R$ 4.000 → total = R$ 200.000
+- unit_price NUNCA pode ser MAIOR que total_price — é fisicamente impossível
+- Se você não tem certeza do total_price, deixe como null — NÃO adivinhe (o sistema calcula automaticamente)
+- unit_price típico para gado de corte: R$ 1.500 a R$ 10.000 por cabeça
+- Valores acima de R$ 20.000/cabeça são raros e só válidos para touros reprodutores
+- Valores abaixo de R$ 500/cabeça quase sempre indicam erro de parsing — revise o formato BR (3.100 = 3100, não 3.10)
+- Se o lance for em arrobas (@), deixe unit_price e total_price como null e registre em notes
+
+ATENÇÃO — PRUDÊNCIA (PREFIRA NULL A INVENÇÃO):
+- Se o lote não for claramente identificado na tela (OCR) nem anunciado no áudio, NÃO o inclua
+- Se um campo não estiver claro, use null — o sistema tolera null e reconcilia com janelas adjacentes
+- NÃO gere números de lote sequenciais "por dedução" — só inclua lotes com evidência direta na tela ou áudio
+- Em 10 minutos de leilão raramente há mais de 8 lotes — se você está extraindo mais, revise se está alucinando

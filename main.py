@@ -24,19 +24,13 @@ PROMPTS_DIR = Path(__file__).parent / "prompts"
 @click.argument("url")
 @click.option(
     "--provider",
-    type=click.Choice(["openai", "openrouter", "ollama"]),
-    default="openai",
+    type=click.Choice(["openrouter", "openai"]),
+    default="openrouter",
     show_default=True,
-    help="LLM provider for lot extraction.",
-)
-@click.option(
-    "--model",
-    default=None,
     help=(
-        "Model name or alias. Defaults: gpt-4.1-nano (openai), "
-        "google/gemma-4-31b-it:free (openrouter), qwen3.5:397b-cloud (ollama). "
-        "OpenAI models: gpt-4.1-nano, gpt-4o-mini, gpt-5-nano. "
-        "Alias: gemini-2.5-flash-lite."
+        "LLM provider for lot extraction. "
+        "'openrouter' → Gemini 2.5 Flash-Lite Preview (default, cheapest/fastest). "
+        "'openai' → GPT-4.1 Mini (alternative, highest accuracy)."
     ),
 )
 @click.option(
@@ -99,9 +93,9 @@ PROMPTS_DIR = Path(__file__).parent / "prompts"
     default=True,
     help="Display full table of all lots with detailed information.",
 )
-def cli(url, provider, model, output_dir, transcriber, whisper_model, cpp_model, screenshot_interval, no_resume, show_metadata, show_summary, show_table):
+def cli(url, provider, output_dir, transcriber, whisper_model, cpp_model, screenshot_interval, no_resume, show_metadata, show_summary, show_table):
     """Extract lot data from a Brazilian cattle auction YouTube video."""
-    model = model or extractor.default_model(provider)
+    model = extractor.default_model(provider)
 
     console.rule("[bold]Cattle Auction Extractor")
     console.print(f"  URL:         {url}")
@@ -165,6 +159,7 @@ def cli(url, provider, model, output_dir, transcriber, whisper_model, cpp_model,
         client=client,
         prompt_path=PROMPTS_DIR / "extraction.txt",
         output_path=run_dir / f"lots_{video_id}.json",
+        verify_prompt_path=PROMPTS_DIR / "verify.txt",
     )
     _done(t0)
 

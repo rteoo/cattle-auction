@@ -1,5 +1,69 @@
 # Changelog
 
+## [1.3.0] — 2026-04-21
+
+Major extraction-quality release. Diagnosed and eliminated the R$ 55,000-per-bezerro hallucination class of bugs, added a statistical outlier framework, introduced a targeted per-lot verification pass, and narrowed the model catalog to two benchmark-validated choices.
+
+### Fixed
+
+- **Impossible prices leaking into output** — LLM would occasionally emit `unit_price > total_price` (e.g. lot 10: unit=R$ 55,000, total=R$ 2,920) and those values would propagate through the pipeline unchallenged. Added shape-invariant checks: `unit_price ≤ total_price` and `unit_price × num_animals ≈ total_price` (20 % tolerance). When invariants fail, the offending fields are nulled so a later window can refill them rather than a corrupt number poisoning the merge.
+- **`coerce_price` amplifying hallucinations** — When the LLM emitted a small float like `30.0`, the BR-thousand-separator repair multiplied it to R$ 30,000. Kept the repair (it still handles the common `3.0 → 3000` case) but now shape invariants and statistical bounds catch the amplified result downstream.
+- **Cross-window field stitching** — Merge could combine `num_animals` from one window with `total_price` from another, producing a lot that was internally inconsistent even though each contributing observation was not. Post-merge sanity re-check catches and cleans this.
+- **Division-by-zero in product-consistency check** — When both `unit_price` and `total_price` were 0, the relative-error calculation crashed. Now guarded.
+- **Hallucination bursts within a single window** — The LLM sometimes invented sequential fake lots (e.g., 26 lots in one 10-min window). Detector: if a window returns > 12 lots, keep only those that reference already-found lot numbers; drop the rest.
+
+### Added
+
+- **Statistical outlier detection — Tukey's 1.5·IQR fence** — Per-head price bounds are now derived from the auction's own price distribution (no hard-coded floors/ceilings). Chosen after empirical comparison of mean ± 3σ, median ± 3σ, 1.5·IQR, 3·IQR, log-MAD, and p2-p98 trimming. Tukey 1.5·IQR was the only method robust to the 15-20 % hallucination contamination typical in raw LLM output. Lower fence is clamped at 0 (prices can't be negative).
+- **Outlier verification pass** — Lots flagged as statistical outliers get a focused second-pass LLM call against their source evidence. Three possible verdicts: `confirm` (keep), `correct` (use a different price found in the evidence), `discard` (null). This lets the pipeline *recover* legitimate high-priced touros that would otherwise be statistically filtered — a purely-statistical filter can't distinguish an R$ 10k touro from a hallucination.
+- **Correction-guardrail** — When the verification LLM proposes a "correction," the new price is re-checked against the Tukey fence. If the correction is still an outlier (observed in practice: "R$ 55,000 → R$ 42"), the correction is rejected and the lot is discarded instead of silently accepting an implausible fix.
+- **Token-usage tracking in `LLMClient`** — Running counters for `input_tokens`, `output_tokens`, and `n_calls` so callers can estimate $ cost from published per-token prices. Surfaced in `summary.json` for each benchmark run.
+- **Prompt hardening** — Added explicit invariant rules (`total_price ≈ unit_price × num_animals`, price cannot exceed total), plausibility bounds (R$ 1,500-10,000 per-head typical, R$ 500 floor, R$ 20,000 ceiling except touros), anti-hallucination directives (prefer null over guessing, don't invent sequential lot numbers, expect ≤ 8 lots per 10-min window), and consolidation rules (don't emit the same lot_number multiple times in one response).
+- **Verification prompt** (`prompts/verify.txt`) — New focused prompt for the second-pass lot audit. Portuguese-language, with explicit BR number-format rules, OCR layout reminders, and reference price ranges per cattle category.
+- **Benchmark harness** (`bench/`) — Reproducible model comparison across multiple videos:
+  - `bench/run_single.py` — runs one (video, provider, model) combo on cached transcript+OCR, writes `lots.json` + `summary.json` + `log.txt` per combo.
+  - `bench/orchestrate.py` — parallel runner (4-way concurrency) over the full video × model matrix.
+  - `bench/analyze.py` — three-section report: reference-based accuracy, raw extraction stats, token usage + cost estimates.
+  - Empirical 5-videos × 10-models benchmark documented; results drove the v1.3.0 model-catalog simplification.
+
+### Changed
+
+- **Model catalog narrowed to two benchmark-validated options:**
+  - **Default**: `openrouter` → `google/gemini-2.5-flash-lite-preview-09-2025` ($0.10/M in · $0.40/M out · ~$0.05/video · 13-24 s per short auction). Best speed + cost, near-parity accuracy.
+  - **Alternative**: `openai` → `gpt-4.1-mini` ($0.40/M in · $1.60/M out · ~$0.13/video). Best accuracy on fine-grained category names.
+- **Price merge across windows now applies post-merge sanity**: cross-window stitching that produces internally inconsistent field combinations gets cleaned.
+- **Sanity check ordering** reworked so the least-destructive action wins: when `unit × n ≠ total`, trust unit (the hammer price) and clear only the mismatched total; only null both when unit is also out of statistical bounds.
+
+### Removed
+
+- **Ollama provider** from `LLMClient` (never used in benchmarks, added complexity).
+- **`_MODEL_ALIASES`** — no aliases needed with only two supported models.
+- **`--model` CLI flag** — model is now determined by `--provider`; picking via alias or arbitrary string is no longer exposed.
+- **`gpt-5-*` special-case** in `max_tokens` handling (dropped with the model list; can be restored when/if gpt-5 becomes a shipped option).
+
+### Performance / behavior
+
+- **Realistic extracted prices.** On the canonical test video (Quirinópolis 2026-04-19): average extracted price dropped from **R$ 4,976** (dominated by two R$ 30-55k hallucinations) to **R$ 3,293** — matching real cattle auction prices in the region.
+- **Invariant violations eliminated.** 2 `unit > total` violations in v1.2.7 → **0** across the same dataset post-release.
+- **Outlier recovery in action.** Legitimate high-priced touros (e.g. a R$ 10,000 reproductor on ZCwxnhUZjQM) now pass through because the verification step confirms them against the audio; a pure statistical filter would have nulled them.
+- **Benchmark rankings** (5 videos × 10 models): Gemini Flash-Lite Preview (default) and GPT-4.1-mini tied on coverage; Gemini is 2.8× cheaper and 3.8× faster on average; GPT-4.1-mini leads slightly on category-name fidelity.
+
+### Testing
+
+- **127 tests passing** (up from 77 in v1.2.x; 50 new tests in this release).
+- New test classes: `TestSanityCheckInvariants`, `TestSanityCheckStatisticalBounds`, `TestComputePriceBounds`, `TestValidateLotsShapeOnly`, `TestPostMergeSanity`, `TestParseHHMMSS`, `TestVerifyLot` (with mocked LLM client covering confirm / correct / discard verdicts, malformed JSON, LLM errors, missing-timestamp edge cases).
+
+### Documentation
+
+- `CLAUDE.md` rewritten for the two-model catalog, with provider-comparison table citing cost/speed/coverage numbers from the benchmark.
+- Benchmark harness documented inline in `bench/*.py`.
+
+### Breaking changes
+
+- Calls using `--provider ollama` or `--model <custom>` will no longer work. Migration: drop the `--model` flag and pick `--provider openrouter` (default) or `--provider openai`.
+
+---
+
 ## [1.2.7] — 2026-04-12
 
 ### Maintenance
