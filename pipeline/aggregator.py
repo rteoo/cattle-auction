@@ -26,10 +26,12 @@ def aggregate(
     Merge transcript segments and OCR results into time windows for LLM processing.
     Windows overlap by `overlap` seconds so lots that span a boundary aren't split.
     """
-    if not segments:
+    if not segments and not ocr_results:
         return []
 
-    total_duration = int(segments[-1].end) + 1
+    transcript_duration = max((seg.end for seg in segments), default=0)
+    ocr_duration = max((_parse_ts(ts) for ts in ocr_results), default=0)
+    total_duration = int(max(transcript_duration, ocr_duration)) + 1
     windows: list[Window] = []
 
     start = 0

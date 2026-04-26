@@ -1,6 +1,6 @@
 [project]
 name = "cattle-auction"
-version = "1.2.7"
+version = "1.3.1"
 description = "Extract lot data from Brazilian cattle auction videos"
 requires-python = ">=3.11"
 dependencies = [

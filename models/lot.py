@@ -1,5 +1,4 @@
 from pydantic import BaseModel, field_validator
-from typing import Literal
 
 
 _CATEGORY_PLURAL_MAP = {
@@ -15,6 +14,24 @@ _CATEGORY_PLURAL_MAP = {
     "fêmeas": "fêmea",
     "mistos": "misto",
 }
+
+
+def coerce_price_value(v):
+    """Coerce Brazilian auction price formats to float.
+
+    Accepts strings such as "R$ 3.100,00" and numeric values. Numeric values
+    below 100 are treated as likely JSON parses of BR thousand-separated prices
+    such as 5.160 -> 5.16, then repaired to 5160.
+    """
+    if v is None:
+        return None
+    if isinstance(v, str):
+        v = v.replace("R$", "").replace(".", "").replace(",", ".").strip()
+        return float(v) if v else None
+    f = float(v)
+    if 0 < f < 100:
+        f = f * 1000
+    return f
 
 
 class Lot(BaseModel):
@@ -41,20 +58,7 @@ class Lot(BaseModel):
     @field_validator("unit_price", "total_price", mode="before")
     @classmethod
     def coerce_price(cls, v):
-        if v is None:
-            return None
-        if isinstance(v, str):
-            # Strip R$, dots (BR thousand separator), convert comma to dot
-            v = v.replace("R$", "").replace(".", "").replace(",", ".").strip()
-            return float(v) if v else None
-        f = float(v)
-        # Guard against LLM outputting BR thousand-separator prices as JSON floats.
-        # e.g. "5.160" in JSON → Python float 5.16, but intended price is R$5,160.
-        # In Brazilian cattle auctions a per-head price below R$100 is not realistic,
-        # so values like 5.16 / 2.75 are almost certainly 5160 / 2750 mis-parsed.
-        if 0 < f < 100:
-            f = f * 1000
-        return f
+        return coerce_price_value(v)
 
 
 class AuctionResult(BaseModel):

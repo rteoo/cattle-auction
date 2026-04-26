@@ -43,6 +43,17 @@ class TestAggregate:
     def test_empty_segments_returns_empty(self):
         assert aggregate([], {}) == []
 
+    def test_ocr_only_input_creates_windows(self):
+        """Visual-only evidence should still be available to extraction."""
+        ocr = {
+            "00:00:30": ["LOTE 1", "R$ 3.100"],
+            "00:12:00": ["LOTE 2", "R$ 2.800"],
+        }
+        windows = aggregate([], ocr)
+        assert len(windows) == 2
+        assert "LOTE 1" in windows[0].combined_text
+        assert "LOTE 2" in windows[1].combined_text
+
     def test_single_short_segment_one_window(self):
         segments = [seg(0, 30, "Lote 1")]
         windows = aggregate(segments, {})

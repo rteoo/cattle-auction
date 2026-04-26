@@ -22,19 +22,9 @@ from pipeline import transcriber as transcriber_mod
 PROMPTS_DIR = Path(__file__).parent / "prompts"
 
 MODELS = [
-    ("openai", "gpt-4o-mini"),
-    ("openai", "gpt-4.1-nano"),
-    ("openai", "gpt-5-nano"),
     ("openrouter", "google/gemini-2.5-flash-lite-preview-09-2025"),
-    ("openrouter", "google/gemma-4-31b-it:free"),
-    ("ollama", "qwen3.5:397b-cloud"),
+    ("openai", "gpt-4.1-mini"),
 ]
-
-# Delay between windows for rate-limited providers (seconds)
-_RATE_LIMIT_DELAY = {
-    "google/gemma-4-31b-it:free": 5,  # free tier: 16 req/min
-}
-
 
 def download_small(url: str, output_dir: Path, video_id: str) -> tuple[Path, Path]:
     """Download video at 480p max (smaller/faster) and extract audio."""
@@ -173,6 +163,7 @@ def run_extraction(
             client=client,
             prompt_path=PROMPTS_DIR / "extraction.txt",
             output_path=lots_path,
+            verify_prompt_path=PROMPTS_DIR / "verify.txt",
         )
     except Exception as e:
         elapsed = time.time() - start_time

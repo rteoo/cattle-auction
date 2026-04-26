@@ -4,7 +4,7 @@ import re
 import statistics
 from pathlib import Path
 
-from models.lot import Lot
+from models.lot import Lot, coerce_price_value
 from pipeline.aggregator import Window
 
 # Number of windows from the start to scan for auction metadata
@@ -132,16 +132,19 @@ def extract_lots(
             continue
 
         # Guard against hallucination bursts (LLM inventing sequential lot numbers).
-        # Keep only entries that either reference an existing lot or have OCR
-        # support — give up and take the first N otherwise.
+        # Keep entries that either reference an existing lot number or have direct
+        # support in this window's transcript/OCR evidence.
         if len(new_lots) > _MAX_NEW_LOTS_PER_WINDOW:
             print(
                 f"  WARNING: window {i} returned {len(new_lots)} lots "
                 f"(>{_MAX_NEW_LOTS_PER_WINDOW}); likely hallucination burst. "
-                f"Keeping only lots that reference already-found numbers."
+                f"Keeping only lots with existing or direct window evidence."
             )
             existing = set(lots_by_number.keys())
-            filtered = [l for l in new_lots if l.lot_number in existing]
+            filtered = [
+                l for l in new_lots
+                if l.lot_number in existing or _lot_has_window_support(l.lot_number, window)
+            ]
             if not filtered:
                 # Nothing salvageable — drop the whole window's output.
                 print(f"    -> 0 lot(s) kept (all were unsupported new numbers).")
@@ -330,14 +333,31 @@ def _verify_lot(
     if correct_price is None:
         return "discard"
     try:
-        price = float(correct_price)
+        price = coerce_price_value(correct_price)
     except (TypeError, ValueError):
+        return "discard"
+    if price is None:
         return "discard"
     # If the LLM says confirmed=false but returns the same price, it's effectively
     # a confirm — collapse to the cleaner verdict so the log reads correctly.
     if lot.unit_price is not None and abs(price - lot.unit_price) < 0.01:
         return "confirm"
     return price
+
+
+def _lot_has_window_support(lot_number: int, window: Window) -> bool:
+    """Return whether the window text directly mentions this lot number."""
+    text = window.combined_text
+    num = str(lot_number)
+    padded = num.zfill(2)
+    patterns = [
+        rf"\bLOTE\s*[:#-]?\s*0*{re.escape(num)}\b",
+        rf"\bLOTE\s*\|\s*[^|\n]*\|\s*VALORPORANIMAL\s*\|\s*0*{re.escape(num)}\b",
+        rf"\|\s*0*{re.escape(num)}\s*\|",
+    ]
+    if padded != num:
+        patterns.append(rf"\bLOTE\s*[:#-]?\s*{re.escape(padded)}\b")
+    return any(re.search(pattern, text, re.IGNORECASE) for pattern in patterns)
 
 
 def _parse_hhmmss(ts: str) -> int:

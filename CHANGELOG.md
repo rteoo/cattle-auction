@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.3.1] — 2026-04-26
+
+Patch release for the post-audit hardening pass.
+
+### Fixed
+
+- **README command drift** — Updated setup, provider, examples, model benchmark, and test-count docs so users no longer see removed `--model` or `ollama` commands.
+- **Invalid screenshot intervals** — `--screenshot-interval` now rejects zero and negative values at CLI parse time instead of failing later in screenshot extraction.
+- **OCR-only aggregation** — `aggregate()` now builds windows from OCR timestamps when transcript segments are empty, preserving visual evidence if transcription fails or misses content.
+- **Verification price parsing** — Outlier verification now reuses Brazilian price coercion, so responses like `R$ 3.100,00` are accepted as `3100.0`.
+- **First-window burst filtering** — The >12-lots guard now keeps lots with direct evidence in the current window instead of dropping every first-window lot because no previous lots exist yet.
+- **Single-video benchmark drift** — `benchmark.py` now targets the two shipping models and uses the same verification prompt path as production extraction.
+
+### Added
+
+- Regression tests for invalid screenshot intervals, OCR-only aggregation, BR-formatted verification prices, and OCR-supported first-window burst filtering.
+- `AGENTS.md` Codex/GPT-5.5 operating guide for the repo.
+
+### Testing
+
+- `132` unit tests passing.
+
 ## [1.3.0] — 2026-04-21
 
 Major extraction-quality release. Diagnosed and eliminated the R$ 55,000-per-bezerro hallucination class of bugs, added a statistical outlier framework, introduced a targeted per-lot verification pass, and narrowed the model catalog to two benchmark-validated choices.

@@ -10,6 +10,7 @@ from pipeline.extractor import (
     _compute_price_bounds,
     _verify_lot,
     _parse_hhmmss,
+    extract_lots,
 )
 from pipeline.aggregator import Window
 
@@ -450,6 +451,21 @@ class _MockClient:
         return self.response
 
 
+class _SequenceClient:
+    """Stand-in client for extract_lots tests that returns one response per call."""
+    def __init__(self, responses: list[str]):
+        self.responses = responses
+        self.calls = []
+        self.n_calls = 0
+        self.input_tokens = 0
+        self.output_tokens = 0
+
+    def complete(self, system: str, user: str, max_retries: int = 3) -> str:
+        self.calls.append((system, user))
+        self.n_calls += 1
+        return self.responses.pop(0)
+
+
 def _make_window(start: int = 0, end: int = 600, text: str = "dummy evidence") -> Window:
     return Window(window_start=start, window_end=end,
                   label=f"{start//3600:02d}:{(start%3600)//60:02d}:{start%60:02d} - …",
@@ -499,6 +515,11 @@ class TestVerifyLot:
         # JSON float
         client2 = _MockClient('{"confirmed": false, "correct_unit_price": 3200.50}')
         assert _verify_lot(_flagged_lot(), [_make_window()], client2, "p") == 3200.5
+
+    def test_correction_accepts_br_formatted_price(self):
+        """Verification uses the same BR price parsing rules as lot extraction."""
+        client = _MockClient('{"confirmed": false, "correct_unit_price": "R$ 3.100,00"}')
+        assert _verify_lot(_flagged_lot(), [_make_window()], client, "p") == 3100.0
 
     def test_discard_verdict(self):
         """`confirmed:false` with null price → return 'discard'."""
@@ -551,3 +572,36 @@ class TestVerifyLot:
         assert "garrote" in user
         assert "6,800.00" in user
         assert "25GARROTES" in user
+
+
+# ── extract_lots burst guard ─────────────────────────────────────────────────
+
+class TestExtractLotsBurstGuard:
+    def test_first_window_burst_keeps_ocr_supported_lots(self, tmp_path):
+        """A real first-window segment can contain >12 lots; keep OCR-supported entries."""
+        lots_json = []
+        evidence_parts = []
+        for n in range(1, 14):
+            lots_json.append({
+                "lot_number": n,
+                "sex": "macho",
+                "category": "bezerro",
+                "num_animals": 1,
+                "breed": "Nelore",
+            })
+            evidence_parts.append(f"LOTE {n}")
+
+        prompt_path = tmp_path / "prompt.txt"
+        prompt_path.write_text("extract", encoding="utf-8")
+        output_path = tmp_path / "lots.json"
+        client = _SequenceClient([__import__("json").dumps(lots_json)])
+        windows = [_make_window(text="TELA: " + " | ".join(evidence_parts))]
+
+        lots = extract_lots(
+            windows,
+            client=client,
+            prompt_path=prompt_path,
+            output_path=output_path,
+        )
+
+        assert [lot.lot_number for lot in lots] == list(range(1, 14))

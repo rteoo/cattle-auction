@@ -65,6 +65,7 @@ PROMPTS_DIR = Path(__file__).parent / "prompts"
 )
 @click.option(
     "--screenshot-interval",
+    type=click.IntRange(min=1),
     default=30,
     show_default=True,
     help="Seconds between screenshots.",

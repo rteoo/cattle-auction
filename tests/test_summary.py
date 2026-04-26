@@ -4,8 +4,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
+from click.testing import CliRunner
 from models.lot import Lot
-from main import _calculate_summary
+from main import _calculate_summary, cli
 
 
 def lot(lot_number, sex, category, num_animals, unit_price=None, sold=None, breed="Nelore"):
@@ -128,3 +129,23 @@ class TestCalculateSummary:
         assert s["total_animals"] == 7
         assert s["avg_price"] == pytest.approx(3500.0)
         assert s["sold"] == 1
+
+
+class TestCliValidation:
+    def test_screenshot_interval_rejects_zero(self):
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["https://www.youtube.com/watch?v=test", "--screenshot-interval", "0"],
+        )
+        assert result.exit_code != 0
+        assert "Invalid value for '--screenshot-interval'" in result.output
+
+    def test_screenshot_interval_rejects_negative(self):
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["https://www.youtube.com/watch?v=test", "--screenshot-interval", "-5"],
+        )
+        assert result.exit_code != 0
+        assert "Invalid value for '--screenshot-interval'" in result.output

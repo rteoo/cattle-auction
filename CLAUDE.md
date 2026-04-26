@@ -129,15 +129,15 @@ class Lot(BaseModel):
 
 ### Test suite structure
 
-- `tests/test_lot_model.py` — 21 tests for `Lot` + `AuctionResult` model validation, Brazilian number format coercion, `sold` field, required fields
-- `tests/test_extractor.py` — 18 tests for `_validate_lots()`, `_parse_response()` (extra-text tolerance), `_merge()` (first-non-null-wins, sold=False preservation)
-- `tests/test_aggregator.py` — 18 tests for `_fmt()`, `_parse_ts()` round-trip, `aggregate()` window logic (overlap, OCR, empty placeholders)
-- `tests/test_summary.py` — 20 tests for `_calculate_summary()` (totals, sex counts, top categories, avg prices, sold counts)
+- `tests/test_lot_model.py` — `Lot` + `AuctionResult` model validation, Brazilian number format coercion, `sold` field, required fields
+- `tests/test_extractor.py` — `_validate_lots()`, `_parse_response()` (extra-text tolerance), `_merge()`, sanity checks, verification parsing, burst filtering
+- `tests/test_aggregator.py` — `_fmt()`, `_parse_ts()` round-trip, `aggregate()` window logic (overlap, OCR-only evidence, empty placeholders)
+- `tests/test_summary.py` — `_calculate_summary()` totals plus CLI option validation
 
 ### Running tests
 
 ```bash
-uv run pytest tests/ -v                # All tests (77 total)
+uv run pytest tests/ -v                # All tests (132 total)
 uv run pytest tests/test_lot_model.py  # Model validation only
 uv run pytest tests/ -k test_br_       # Specific pattern (e.g., BR number format tests)
 ```
