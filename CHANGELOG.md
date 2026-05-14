@@ -1,5 +1,57 @@
 # Changelog
 
+## [1.3.2] — 2026-05-13
+
+Batch workflow release focused on faster multi-video processing and richer comparison output.
+
+### Added
+
+- **Batch URL processing** — CLI now accepts multiple YouTube URLs or `--batch-file`, runs them sequentially, keeps per-video output folders, and writes `batch_summary.json` plus `comparison.md`.
+- **Batch comparison summary** — Final batch output now includes date, city, auction label, leiloeiro, lots, animals, average price, and a separate top-3 category price comparison table.
+- **Auction metadata fallbacks** — Batch reports infer missing auction labels and leiloeiro names from structured metadata, farm fields, and notes so known auctions are not hidden behind `-`.
+- **OCR video resolution control** — `--ocr-video-height` supports `480` and `720`, with `480p` as the default for OCR screenshot downloads.
+
+### Changed
+
+- **Two-step media download flow** — Pipeline now downloads audio-only first for transcription, then downloads a lower-resolution OCR video only when screenshots are needed.
+- **Default OCR video size** — OCR screenshots now use a 480p video by default, with 720p available as an alternative.
+- **Batch reporting layout** — Category price comparison moved out of the main table to avoid terminal truncation on wide batch summaries.
+
+### Fixed
+
+- **Missing auctions in batch summaries** — Auctions with useful identity data stored in `farm` or `notes` now appear in the batch comparison instead of being blank.
+- **Downloader regression coverage** — Added tests around audio-first downloads and OCR video format selection.
+
+### Testing
+
+- `141` unit tests passing.
+
+## [1.3.2] — 2026-05-13
+
+Batch workflow release focused on faster multi-video processing and richer comparison output.
+
+### Added
+
+- **Batch URL processing** — CLI now accepts multiple YouTube URLs or `--batch-file`, runs them sequentially, keeps per-video output folders, and writes `batch_summary.json` plus `comparison.md`.
+- **Batch comparison summary** — Final batch output now includes date, city, auction label, leiloeiro, lots, animals, average price, and a separate top-3 category price comparison table.
+- **Auction metadata fallbacks** — Batch reports infer missing auction labels and leiloeiro names from structured metadata, farm fields, and notes so known auctions are not hidden behind `-`.
+- **OCR video resolution control** — `--ocr-video-height` supports `480` and `720`, with `480p` as the default for OCR screenshot downloads.
+
+### Changed
+
+- **Two-step media download flow** — Pipeline now downloads audio-only first for transcription, then downloads a lower-resolution OCR video only when screenshots are needed.
+- **Default OCR video size** — OCR screenshots now use a 480p video by default, with 720p available as an alternative.
+- **Batch reporting layout** — Category price comparison moved out of the main table to avoid terminal truncation on wide batch summaries.
+
+### Fixed
+
+- **Missing auctions in batch summaries** — Auctions with useful identity data stored in `farm` or `notes` now appear in the batch comparison instead of being blank.
+- **Downloader regression coverage** — Added tests around audio-first downloads and OCR video format selection.
+
+### Testing
+
+- `141` unit tests passing.
+
 ## [1.3.1] — 2026-04-26
 
 Patch release for the post-audit hardening pass.

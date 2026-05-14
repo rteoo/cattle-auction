@@ -1,6 +1,8 @@
 import json
+import re
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 
 import click
@@ -21,7 +23,23 @@ PROMPTS_DIR = Path(__file__).parent / "prompts"
 
 
 @click.command()
-@click.argument("url")
+@click.argument("urls", nargs=-1)
+@click.option(
+    "--batch-file",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Text file with one YouTube URL per line. Blank lines and lines starting with # are ignored.",
+)
+@click.option(
+    "--batch-name",
+    default=None,
+    help="Name for the saved batch report folder. Defaults to a timestamp.",
+)
+@click.option(
+    "--stop-on-error",
+    is_flag=True,
+    default=False,
+    help="In batch mode, stop after the first failed URL instead of continuing.",
+)
 @click.option(
     "--provider",
     type=click.Choice(["openrouter", "openai"]),
@@ -71,6 +89,13 @@ PROMPTS_DIR = Path(__file__).parent / "prompts"
     help="Seconds between screenshots.",
 )
 @click.option(
+    "--ocr-video-height",
+    type=click.Choice(["480", "720"]),
+    default="480",
+    show_default=True,
+    help="Maximum video height to download for OCR screenshots.",
+)
+@click.option(
     "--no-resume",
     is_flag=True,
     default=False,
@@ -94,14 +119,90 @@ PROMPTS_DIR = Path(__file__).parent / "prompts"
     default=True,
     help="Display full table of all lots with detailed information.",
 )
-def cli(url, provider, output_dir, transcriber, whisper_model, cpp_model, screenshot_interval, no_resume, show_metadata, show_summary, show_table):
-    """Extract lot data from a Brazilian cattle auction YouTube video."""
+def cli(
+    urls,
+    batch_file,
+    batch_name,
+    stop_on_error,
+    provider,
+    output_dir,
+    transcriber,
+    whisper_model,
+    cpp_model,
+    screenshot_interval,
+    ocr_video_height,
+    no_resume,
+    show_metadata,
+    show_summary,
+    show_table,
+):
+    """Extract lot data from one or more Brazilian cattle auction YouTube videos."""
+    batch_urls = _load_batch_urls(urls, batch_file)
+    if not batch_urls:
+        raise click.UsageError("Provide at least one YouTube URL or use --batch-file.")
+
+    is_batch = batch_file is not None or len(batch_urls) > 1
+    if is_batch:
+        report = _run_batch(
+            batch_urls,
+            provider=provider,
+            output_dir=output_dir,
+            transcriber=transcriber,
+            whisper_model=whisper_model,
+            cpp_model=cpp_model,
+            screenshot_interval=screenshot_interval,
+            ocr_video_height=int(ocr_video_height),
+            no_resume=no_resume,
+            show_metadata=show_metadata,
+            show_summary=show_summary,
+            show_table=show_table,
+            batch_name=batch_name,
+            stop_on_error=stop_on_error,
+        )
+        if report["totals"]["failed"]:
+            raise click.ClickException(
+                f"{report['totals']['failed']} batch item(s) failed. See batch report for details."
+            )
+        return
+
+    _run_single_url(
+        batch_urls[0],
+        provider=provider,
+        output_dir=output_dir,
+        transcriber=transcriber,
+        whisper_model=whisper_model,
+        cpp_model=cpp_model,
+        screenshot_interval=screenshot_interval,
+        ocr_video_height=int(ocr_video_height),
+        no_resume=no_resume,
+        show_metadata=show_metadata,
+        show_summary=show_summary,
+        show_table=show_table,
+    )
+
+
+def _run_single_url(
+    url,
+    *,
+    provider,
+    output_dir,
+    transcriber,
+    whisper_model,
+    cpp_model,
+    screenshot_interval,
+    ocr_video_height,
+    no_resume,
+    show_metadata,
+    show_summary,
+    show_table,
+):
     model = extractor.default_model(provider)
 
     console.rule("[bold]Cattle Auction Extractor")
     console.print(f"  URL:         {url}")
     console.print(f"  Transcriber: {transcriber}" + (f" / {whisper_model}" if transcriber != "groq" else " (Whisper Large v3 Turbo)"))
     console.print(f"  Extractor:   {provider} / {model}")
+    console.print(f"  OCR video:   {ocr_video_height}p")
     console.print()
 
     video_id = downloader.get_video_id(url)
@@ -113,14 +214,14 @@ def cli(url, provider, output_dir, transcriber, whisper_model, cpp_model, screen
 
     video_info = downloader.get_video_info(url, run_dir, video_id)
 
-    # ── Stage 1: Download ────────────────────────────────────────────────
-    _stage("1/6", "Download")
+    # ── Stage 1: Download audio ──────────────────────────────────────────
+    _stage("1/7", "Download audio")
     t0 = time.time()
-    video_path, audio_path = downloader.download(url, run_dir, video_id)
+    audio_path = downloader.download_audio(url, run_dir, video_id)
     _done(t0)
 
     # ── Stage 2: Transcribe ──────────────────────────────────────────────
-    _stage("2/6", f"Transcribe audio ({transcriber})")
+    _stage("2/7", f"Transcribe audio ({transcriber})")
     t0 = time.time()
     segments = transcriber_mod.transcribe(
         audio_path,
@@ -131,8 +232,19 @@ def cli(url, provider, output_dir, transcriber, whisper_model, cpp_model, screen
     )
     _done(t0)
 
-    # ── Stage 3: Screenshots ─────────────────────────────────────────────
-    _stage("3/6", f"Extract screenshots (every {screenshot_interval}s)")
+    # ── Stage 3: Download OCR video ──────────────────────────────────────
+    _stage("3/7", f"Download OCR video ({ocr_video_height}p)")
+    t0 = time.time()
+    video_path = downloader.download_ocr_video(
+        url,
+        run_dir,
+        video_id,
+        height=ocr_video_height,
+    )
+    _done(t0)
+
+    # ── Stage 4: Screenshots ─────────────────────────────────────────────
+    _stage("4/7", f"Extract screenshots (every {screenshot_interval}s)")
     t0 = time.time()
     shots = screenshotter.extract_screenshots(
         video_path,
@@ -142,14 +254,14 @@ def cli(url, provider, output_dir, transcriber, whisper_model, cpp_model, screen
     )
     _done(t0)
 
-    # ── Stage 4: OCR ─────────────────────────────────────────────────────
-    _stage("4/6", "Run OCR on screenshots")
+    # ── Stage 5: OCR ─────────────────────────────────────────────────────
+    _stage("5/7", "Run OCR on screenshots")
     t0 = time.time()
     ocr_results = ocr.run_ocr(shots, output_path=run_dir / f"ocr_results_{video_id}.json")
     _done(t0)
 
-    # ── Stage 5: Extract lots ─────────────────────────────────────────────
-    _stage("5/6", f"Extract lots with {provider}/{model}")
+    # ── Stage 6: Extract lots ─────────────────────────────────────────────
+    _stage("6/7", f"Extract lots with {provider}/{model}")
     t0 = time.time()
     windows = aggregator.aggregate(segments, ocr_results)
     console.print(f"  Aggregated into {len(windows)} windows.")
@@ -164,8 +276,8 @@ def cli(url, provider, output_dir, transcriber, whisper_model, cpp_model, screen
     )
     _done(t0)
 
-    # ── Stage 6: Extract auction metadata ────────────────────────────────
-    _stage("6/6", f"Extract auction metadata with {provider}/{model}")
+    # ── Stage 7: Extract auction metadata ────────────────────────────────
+    _stage("7/7", f"Extract auction metadata with {provider}/{model}")
     t0 = time.time()
     metadata = extractor.extract_metadata(
         windows,
@@ -217,6 +329,402 @@ def cli(url, provider, output_dir, transcriber, whisper_model, cpp_model, screen
 
     if show_table:
         _print_table(lots)
+
+    return result
+
+
+def _load_batch_urls(urls, batch_file: Path | None) -> list[str]:
+    """Load positional URLs plus an optional text file of URLs."""
+    loaded = [url.strip() for url in urls if url.strip()]
+    if batch_file is None:
+        return loaded
+
+    for line in batch_file.read_text(encoding="utf-8").splitlines():
+        url = line.strip()
+        if not url or url.startswith("#"):
+            continue
+        loaded.append(url)
+
+    return loaded
+
+
+def _run_batch(
+    urls,
+    *,
+    provider,
+    output_dir,
+    transcriber,
+    whisper_model,
+    cpp_model,
+    screenshot_interval,
+    ocr_video_height,
+    no_resume,
+    show_metadata,
+    show_summary,
+    show_table,
+    batch_name,
+    stop_on_error,
+):
+    output_root = Path(output_dir)
+    report_dir = _batch_report_dir(output_root, batch_name)
+    report_name = report_dir.name
+
+    console.rule("[bold]Cattle Auction Batch")
+    console.print(f"  Videos:      {len(urls)}")
+    console.print(f"  Batch:       {report_name}")
+    console.print(f"  Output:      [cyan]{output_root}/[/cyan]")
+    console.print()
+
+    items = []
+    for index, url in enumerate(urls, start=1):
+        console.rule(f"[bold cyan]Batch {index}/{len(urls)}")
+        console.print(f"  URL: {url}")
+        try:
+            result = _run_single_url(
+                url,
+                provider=provider,
+                output_dir=output_dir,
+                transcriber=transcriber,
+                whisper_model=whisper_model,
+                cpp_model=cpp_model,
+                screenshot_interval=screenshot_interval,
+                ocr_video_height=ocr_video_height,
+                no_resume=no_resume,
+                show_metadata=show_metadata,
+                show_summary=show_summary,
+                show_table=show_table,
+            )
+        except Exception as exc:
+            console.print(f"  [red]Failed:[/red] {exc}\n")
+            items.append(_batch_failure_item(index, url, exc))
+            if stop_on_error:
+                break
+        else:
+            items.append(_batch_success_item(index, result, output_root))
+
+    report = _build_batch_report(report_name, items)
+    paths = _write_batch_report(report, report_dir)
+    _print_batch_summary(report, paths["json"])
+    return report
+
+
+def _batch_report_dir(output_root: Path, batch_name: str | None) -> Path:
+    name = batch_name or datetime.now().strftime("batch_%Y%m%d_%H%M%S")
+    safe_name = "".join(ch if ch.isalnum() or ch in "._-" else "-" for ch in name).strip(".-")
+    return output_root / "batches" / (safe_name or "batch")
+
+
+def _batch_success_item(index: int, result: AuctionResult, output_root: Path) -> dict:
+    summary = _calculate_summary(result.lots)
+    category_animals = summary.get("category_animals", {})
+    top_category = next(iter(category_animals), None)
+    return {
+        "index": index,
+        "status": "success",
+        "url": result.video_url,
+        "video_id": result.video_id,
+        "output_dir": str(output_root / result.video_id),
+        "date": result.date,
+        "city": result.city,
+        "auctioneer": result.auctioneer,
+        "farm": result.farm,
+        "auction_type": result.auction_type,
+        "notes": result.notes,
+        "auction_name": _infer_auction_name(result.auctioneer, result.farm, result.notes),
+        "auctioneer_display": _infer_auctioneer(result.auctioneer, result.notes),
+        "total_lots": summary.get("total_lots", 0),
+        "total_animals": summary.get("total_animals", 0),
+        "sold": summary.get("sold", 0),
+        "not_sold": summary.get("not_sold", 0),
+        "avg_price": summary.get("avg_price", 0),
+        "top_category": top_category,
+        "category_animals": category_animals,
+        "category_prices": summary.get("category_prices", {}),
+    }
+
+
+def _batch_failure_item(index: int, url: str, exc: Exception) -> dict:
+    return {
+        "index": index,
+        "status": "failed",
+        "url": url,
+        "error": str(exc),
+    }
+
+
+def _infer_auction_name(auctioneer: str | None, farm: str | None, notes: str | None) -> str | None:
+    if farm:
+        return farm
+    if auctioneer and "leil" in auctioneer.lower():
+        return auctioneer
+    if notes:
+        quoted = re.search(r"(?:canal do YouTube|anunciado como)\s+'([^']+)'", notes, flags=re.IGNORECASE)
+        if quoted:
+            return quoted.group(1)
+        leilao = re.search(r"\b(Leilão\s+\d+º)", notes, flags=re.IGNORECASE)
+        if leilao:
+            return leilao.group(1)
+        cal = re.search(r"\bCAL\s+LEIL[ÕO]ES\b", notes, flags=re.IGNORECASE)
+        if cal:
+            return "CAL LEILÕES"
+    return auctioneer
+
+
+def _infer_auctioneer(auctioneer: str | None, notes: str | None) -> str | None:
+    if notes:
+        mentioned = re.search(
+            r"[Oo]?\s*[Ll]eiloeiro(?:\s+mencionado(?:\s+no\s+áudio)?)?\s*(?:é|:)\s*([^\.]+)",
+            notes,
+        )
+        if mentioned:
+            return mentioned.group(1).strip()
+    return auctioneer
+
+
+def _build_batch_report(batch_name: str, items: list[dict]) -> dict:
+    successes = [item for item in items if item["status"] == "success"]
+    failures = [item for item in items if item["status"] == "failed"]
+
+    category_totals = {}
+    for item in successes:
+        for category, count in item.get("category_animals", {}).items():
+            category_totals[category] = category_totals.get(category, 0) + count
+    top_price_categories = [
+        category
+        for category, _ in sorted(
+            category_totals.items(),
+            key=lambda row: row[1],
+            reverse=True,
+        )[:3]
+    ]
+
+    comparison = {
+        "most_lots": _comparison_item(successes, "total_lots"),
+        "most_animals": _comparison_item(successes, "total_animals"),
+        "highest_avg_price": _comparison_item(
+            [item for item in successes if item.get("avg_price")],
+            "avg_price",
+        ),
+    }
+
+    return {
+        "batch": batch_name,
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "totals": {
+            "videos": len(items),
+            "successful": len(successes),
+            "failed": len(failures),
+            "lots": sum(item.get("total_lots", 0) for item in successes),
+            "animals": sum(item.get("total_animals", 0) for item in successes),
+            "sold": sum(item.get("sold", 0) for item in successes),
+            "not_sold": sum(item.get("not_sold", 0) for item in successes),
+        },
+        "comparison": comparison,
+        "category_totals": category_totals,
+        "top_price_categories": top_price_categories,
+        "items": items,
+    }
+
+
+def _comparison_item(items: list[dict], field: str) -> dict | None:
+    if not items:
+        return None
+    item = max(items, key=lambda row: row.get(field, 0))
+    return {
+        "video_id": item.get("video_id"),
+        "url": item.get("url"),
+        "value": item.get(field, 0),
+    }
+
+
+def _write_batch_report(report: dict, report_dir: Path) -> dict[str, Path]:
+    report_dir.mkdir(parents=True, exist_ok=True)
+    json_path = report_dir / "batch_summary.json"
+    markdown_path = report_dir / "comparison.md"
+    json_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    markdown_path.write_text(_format_batch_markdown(report), encoding="utf-8")
+    return {"json": json_path, "markdown": markdown_path}
+
+
+def _format_batch_markdown(report: dict) -> str:
+    totals = report["totals"]
+    price_categories = report.get("top_price_categories", [])
+    lines = [
+        f"# Batch {report['batch']}",
+        "",
+        "## Summary",
+        "",
+        f"- Videos processed: {totals['videos']}",
+        f"- Successful: {totals['successful']}",
+        f"- Failed: {totals['failed']}",
+        f"- Lots: {totals['lots']}",
+        f"- Animals: {totals['animals']}",
+        f"- Sold: {totals['sold']}",
+        f"- Not sold: {totals['not_sold']}",
+        "",
+        "## Comparison",
+        "",
+    ]
+
+    labels = {
+        "most_lots": "Most lots",
+        "most_animals": "Most animals",
+        "highest_avg_price": "Highest average price",
+    }
+    for key, label in labels.items():
+        item = report["comparison"].get(key)
+        if item:
+            lines.append(f"- {label}: {item['video_id']} ({item['value']})")
+
+    lines.extend(
+        [
+            "",
+            "## Videos",
+            "",
+            "| Status | Video | Data | Cidade | Leilão | Leiloeiro | Lots | Animals | Avg price |",
+            "|---|---|---|---|---|---|---:|---:|---:|",
+        ]
+    )
+    for item in report["items"]:
+        if item["status"] == "success":
+            lines.append(
+                "| success "
+                f"| {item['video_id']} "
+                f"| {_batch_text(item.get('date'))} "
+                f"| {_batch_text(item.get('city'))} "
+                f"| {_batch_text(_item_auction_name(item))} "
+                f"| {_batch_text(_item_auctioneer(item))} "
+                f"| {item['total_lots']} "
+                f"| {item['total_animals']} "
+                f"| {item['avg_price']:.2f} |"
+            )
+        else:
+            lines.append(f"| failed | {item['url']} | - | - | - | - | 0 | 0 | 0.00 |")
+
+    if price_categories:
+        lines.extend(
+            [
+                "",
+                "## Preço por Categoria",
+                "",
+                "| Video | " + " | ".join(price_categories) + " |",
+                "|---|" + "|".join("---:" for _ in price_categories) + "|",
+            ]
+        )
+        for item in report["items"]:
+            if item["status"] != "success":
+                continue
+            prices = _format_batch_category_price_cells(
+                item.get("category_prices", {}),
+                price_categories,
+            )
+            lines.append(f"| {item['video_id']} | " + " | ".join(prices) + " |")
+
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _batch_text(value) -> str:
+    return str(value) if value else "-"
+
+
+def _item_auction_name(item: dict) -> str | None:
+    return item.get("auction_name") or item.get("farm") or item.get("auctioneer")
+
+
+def _item_auctioneer(item: dict) -> str | None:
+    return item.get("auctioneer_display") or item.get("auctioneer")
+
+
+def _format_batch_category_prices(category_prices: dict, categories: list[str]) -> str:
+    if not categories:
+        return "-"
+    return "  |  ".join(
+        f"{category}: {price}"
+        for category, price in zip(
+            categories,
+            _format_batch_category_price_cells(category_prices, categories),
+        )
+    )
+
+
+def _format_batch_category_price_cells(category_prices: dict, categories: list[str]) -> list[str]:
+    parts = []
+    for category in categories:
+        price = category_prices.get(category)
+        value = f"R$ {price:,.2f}" if price else "-"
+        parts.append(value)
+    return parts
+
+
+def _print_batch_summary(report: dict, report_path: Path) -> None:
+    totals = report["totals"]
+    console.rule("[bold green]Batch Summary")
+    console.print(
+        f"  Videos: {totals['videos']}"
+        f"  |  OK: {totals['successful']}"
+        f"  |  Failed: {totals['failed']}"
+    )
+    console.print(
+        f"  Lotes: {totals['lots']}"
+        f"  |  Animais: {totals['animals']}"
+        f"  |  Vendidos: {totals['sold']}"
+        f"  |  Não vendidos: {totals['not_sold']}"
+    )
+    console.print(f"  Report: [cyan]{report_path}[/cyan]\n")
+
+    table = Table(title="Batch Comparison", show_lines=True)
+    table.add_column("Status", overflow="fold")
+    table.add_column("Video", overflow="fold")
+    table.add_column("Data", overflow="fold")
+    table.add_column("Cidade", overflow="fold")
+    table.add_column("Leilão", overflow="fold")
+    table.add_column("Leiloeiro", overflow="fold")
+    table.add_column("Lotes", justify="right", overflow="fold")
+    table.add_column("Animais", justify="right", overflow="fold")
+    table.add_column("Preço Médio", justify="right", overflow="fold")
+
+    price_categories = report.get("top_price_categories", [])
+
+    for item in report["items"]:
+        if item["status"] == "success":
+            avg_price = f"R$ {item['avg_price']:,.2f}" if item.get("avg_price") else "-"
+            table.add_row(
+                "[green]OK[/green]",
+                item["video_id"],
+                _batch_text(item.get("date")),
+                _batch_text(item.get("city")),
+                _batch_text(_item_auction_name(item)),
+                _batch_text(_item_auctioneer(item)),
+                str(item["total_lots"]),
+                str(item["total_animals"]),
+                avg_price,
+            )
+        else:
+            table.add_row("[red]FAIL[/red]", item["url"], "-", "-", "-", "-", "-", "-", "-")
+
+    console.print(table)
+
+    if not price_categories:
+        return
+
+    price_table = Table(title="Preço por Categoria (top 3 por animais)", show_lines=True)
+    price_table.add_column("Video", no_wrap=True)
+    for category in price_categories:
+        price_table.add_column(category.title(), justify="right", no_wrap=True)
+
+    for item in report["items"]:
+        if item["status"] != "success":
+            continue
+        price_table.add_row(
+            item["video_id"],
+            *_format_batch_category_price_cells(
+                item.get("category_prices", {}),
+                price_categories,
+            ),
+        )
+
+    console.print(price_table)
 
 
 _MALE_CATEGORIES = ("bezerro", "garrote", "novilho", "boi", "touro")

@@ -8,15 +8,16 @@ This is the operating guide for GPT-5.5/Codex agents working in this repository.
 
 The pipeline:
 
-1. Downloads a YouTube video with `yt-dlp`.
+1. Downloads YouTube audio only with `yt-dlp`.
 2. Extracts 16 kHz mono audio with `ffmpeg`.
 3. Transcribes PT-BR audio with Groq Whisper, MLX Whisper, or whisper.cpp.
-4. Extracts screenshots every N seconds.
-5. Runs OCR over screenshots with RapidOCR.
-6. Merges transcript and OCR into overlapping time windows.
-7. Sends each window to an LLM to extract lot records.
-8. Extracts auction metadata.
-9. Writes checkpointed JSON artifacts and prints Rich summary/table output.
+4. Downloads a low-resolution OCR video, 480p by default or 720p when requested.
+5. Extracts screenshots every N seconds.
+6. Runs OCR over screenshots with RapidOCR.
+7. Merges transcript and OCR into overlapping time windows.
+8. Sends each window to an LLM to extract lot records.
+9. Extracts auction metadata.
+10. Writes checkpointed JSON artifacts and prints Rich summary/table output.
 
 The domain is Brazilian cattle auctions. Preserve PT-BR terminology, Brazilian number formats, and cattle-specific extraction rules unless there is strong test-backed evidence to change them.
 
@@ -29,7 +30,7 @@ Use this priority order when docs disagree:
 3. `README.md`.
 4. Historical notes, comments, or benchmark writeups.
 
-The current CLI in `main.py` supports `--provider openrouter|openai` only, defaults to `openrouter`, and does not expose a generic `--model` or `ollama` option.
+The current CLI in `main.py` supports one URL, multiple positional URLs, or `--batch-file`. It supports `--provider openrouter|openai` only, defaults to `openrouter`, and does not expose a generic `--model` or `ollama` option.
 
 ## Setup
 
@@ -62,6 +63,8 @@ Primary CLI:
 
 ```bash
 uv run python main.py <youtube_url> [OPTIONS]
+uv run python main.py <youtube_url_1> <youtube_url_2> [OPTIONS]
+uv run python main.py --batch-file links.txt --batch-name maio-2026 [OPTIONS]
 ```
 
 Important options:
@@ -72,12 +75,18 @@ Important options:
 --whisper-model medium             # used by mlx/cpp
 --cpp-model /path/to/ggml.bin      # optional whisper.cpp model path
 --screenshot-interval 30           # seconds between frames
+--ocr-video-height 480             # OCR video height: 480 or 720
 --output-dir output
 --no-resume                        # clear stage checkpoints before running
 --metadata / --no-metadata
 --summary / --no-summary
 --table / --no-table
+--batch-file links.txt              # one YouTube URL per line; blank/# lines ignored
+--batch-name maio-2026              # saved under output/batches/<name>/
+--stop-on-error                     # batch mode stops at first failed URL
 ```
+
+Batch mode runs URLs sequentially. Each video still writes its normal artifacts under `output/<video_id>/`; the batch-level report is saved under `output/batches/<batch_name>/batch_summary.json` with a companion `comparison.md`. Batch mode continues after failed URLs by default, records the error in the report, and exits non-zero if any item failed.
 
 Default LLM models are resolved in `pipeline/extractor.py`:
 
@@ -103,6 +112,7 @@ uv run pytest tests/test_lot_model.py -v
 uv run pytest tests/test_extractor.py -v
 uv run pytest tests/test_aggregator.py -v
 uv run pytest tests/test_summary.py -v
+uv run pytest tests/test_downloader.py -v
 uv run pytest tests/ -k test_br_ -v
 ```
 
@@ -114,13 +124,16 @@ Pipeline stages write resumable artifacts under `output/<video_id>/`.
 
 | Stage | Artifacts |
 |---|---|
-| Download | `video_<id>.mp4`, `audio_<id>.wav`, `video_info_<id>.json` |
+| Video info | `video_info_<id>.json` |
+| Audio source | `audio_source_<id>.<ext>`, `audio_<id>.wav` |
+| OCR video | `video_ocr_<id>_480p.mp4`, `video_ocr_<id>_720p.mp4` when requested |
 | Transcribe | `transcript_<id>.json` |
 | Screenshots | `screenshots_<id>.json`, `screenshots_<id>/` |
 | OCR | `ocr_results_<id>.json` |
 | Lot extraction | `lots_<id>.json` |
 | Metadata | `metadata_<id>.json` |
 | Final result | `result_<id>.json` |
+| Batch summary | `batches/<batch_name>/batch_summary.json`, `batches/<batch_name>/comparison.md` |
 
 Do not delete or regenerate `output/` artifacts casually. Full runs can be slow and may incur API cost. Use `--no-resume` only when the task explicitly requires invalidating cached stage outputs.
 
@@ -148,7 +161,9 @@ cattle-auction/
     ├── test_lot_model.py     ← model validation and BR price coercion
     ├── test_extractor.py     ← response parsing, merge, sanity checks
     ├── test_aggregator.py    ← time windows and OCR/transcript merging
-    └── test_summary.py       ← summary statistics
+    ├── test_summary.py       ← summary statistics
+    ├── test_batch.py         ← batch URL loading, sequential runs, reports
+    └── test_downloader.py    ← audio-only download and OCR video resolution
 ```
 
 ## Core Data Model
@@ -215,6 +230,7 @@ Be explicit before running commands that can:
 - Call Groq, OpenRouter, or OpenAI.
 - Re-run OCR or LLM extraction on large cached outputs.
 - Clear checkpoints with `--no-resume`.
+- Run batch mode over multiple URLs, because costs and runtime multiply by video count.
 
 For routine implementation work, prefer unit tests over live pipeline runs.
 
@@ -234,8 +250,8 @@ For routine implementation work, prefer unit tests over live pipeline runs.
 - Model validation or Brazilian price handling: update `models/lot.py` and `tests/test_lot_model.py`.
 - LLM JSON parsing, merge semantics, price sanity checks, or provider defaults: update `pipeline/extractor.py` and `tests/test_extractor.py`.
 - Window sizing, overlap, timestamp formatting, or OCR/transcript merge behavior: update `pipeline/aggregator.py` and `tests/test_aggregator.py`.
-- CLI display or summary numbers: update `main.py` and `tests/test_summary.py`.
-- Download, transcription, screenshots, or OCR runtime behavior: update the matching `pipeline/` module and add focused tests where practical.
+- CLI display, batch reports, or summary numbers: update `main.py`, `tests/test_summary.py`, and/or `tests/test_batch.py`.
+- Download, transcription, screenshots, or OCR runtime behavior: update the matching `pipeline/` module and add focused tests where practical. Downloader format and resolution changes belong in `pipeline/downloader.py` and `tests/test_downloader.py`.
 
 ## PR Readiness
 

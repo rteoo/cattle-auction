@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A Python CLI pipeline that extracts structured lot data from Brazilian cattle auction YouTube videos. It downloads the video, transcribes the audio with Whisper (PT-BR), takes screenshots every 30s and runs OCR on them, then sends aggregated transcript+screen data to an LLM to extract lot information.
+A Python CLI pipeline that extracts structured lot data from Brazilian cattle auction YouTube videos. It downloads audio only for transcription, then downloads a low-resolution OCR video for screenshots, transcribes the audio with Whisper (PT-BR), takes screenshots every 30s and runs OCR on them, then sends aggregated transcript+screen data to an LLM to extract lot information.
 
 ## Setup
 
@@ -27,6 +27,8 @@ OPENROUTER_API_KEY=
 
 ```bash
 uv run python main.py <youtube_url> [OPTIONS]
+uv run python main.py <youtube_url_1> <youtube_url_2> [OPTIONS]
+uv run python main.py --batch-file links.txt --batch-name maio-2026 [OPTIONS]
 
 # Options:
 #   --provider      openrouter|openai    (default: openrouter)
@@ -36,12 +38,18 @@ uv run python main.py <youtube_url> [OPTIONS]
 #   --whisper-model      medium                     (default: medium, used by mlx and cpp)
 #   --cpp-model          /path/to/ggml.bin         (whisper.cpp only, auto-detected if omitted)
 #   --screenshot-interval 30                      (seconds between frames)
+#   --ocr-video-height   480|720                  (default: 480, OCR screenshot video)
 #   --no-resume                                   (ignore cached stage outputs)
 #   --metadata / --no-metadata                    (default: on, show auction metadata header)
 #   --summary / --no-summary                      (default: on, show summary statistics)
 #   --table / --no-table                          (default: on, show full lots table)
 #   --output-dir         output                    (base directory)
+#   --batch-file        links.txt                  (one YouTube URL per line)
+#   --batch-name        maio-2026                  (output/batches/<name>/)
+#   --stop-on-error                                (batch mode stops at first failed URL)
 ```
+
+Batch mode runs URLs sequentially. Each video writes normal artifacts under `output/<id>/`; the batch report is written to `output/batches/<batch_name>/batch_summary.json` with `comparison.md`.
 
 ## LLM providers
 
@@ -80,18 +88,20 @@ Each stage writes a checkpoint file. On rerun, if the file exists the stage is s
 
 | Stage | Output file |
 |---|---|
-| Download | `output/<id>/video_<id>.mp4`, `audio_<id>.wav` |
+| Audio download | `output/<id>/audio_source_<id>.<ext>`, `audio_<id>.wav` |
 | Transcribe | `output/<id>/transcript_<id>.json` |
+| OCR video | `output/<id>/video_ocr_<id>_480p.mp4` or `video_ocr_<id>_720p.mp4` |
 | Screenshots | `output/<id>/screenshots_<id>.json` + `screenshots_<id>/` dir |
 | OCR | `output/<id>/ocr_results_<id>.json` |
 | Extraction | `output/<id>/lots_<id>.json` |
 | Metadata | `output/<id>/metadata_<id>.json` |
 | Final result | `output/<id>/result_<id>.json` |
+| Batch report | `output/batches/<batch_name>/batch_summary.json` + `comparison.md` |
 
 ## Architecture
 
 - `main.py` — CLI entry point, orchestrates stages, renders summary table; loads `.env` via `python-dotenv`
-- `pipeline/downloader.py` — yt-dlp CLI download (uses `--remote-components ejs:github` + Deno for YouTube n-challenge) + ffmpeg audio extraction
+- `pipeline/downloader.py` — yt-dlp CLI download (uses `--remote-components ejs:github` + Deno for YouTube n-challenge); downloads audio-only first for transcription, then 480p default / 720p optional OCR video
 - `pipeline/transcriber.py` — three backends: Groq API (default, chunk progress bar), MLX Whisper (thread + spinner), whisper.cpp (Popen + parse `--print-progress` stderr); Groq converts audio to 32kbps MP3 and splits into 15-min chunks when file exceeds 20 MB
 - `pipeline/screenshotter.py` — ffmpeg frame extraction every N seconds; streams `-progress pipe:1` to show a Rich progress bar
 - `pipeline/ocr.py` — RapidOCR (ONNX-based) on all screenshots with Rich progress bar; no native PaddlePaddle dependency
@@ -133,16 +143,18 @@ class Lot(BaseModel):
 - `tests/test_extractor.py` — `_validate_lots()`, `_parse_response()` (extra-text tolerance), `_merge()`, sanity checks, verification parsing, burst filtering
 - `tests/test_aggregator.py` — `_fmt()`, `_parse_ts()` round-trip, `aggregate()` window logic (overlap, OCR-only evidence, empty placeholders)
 - `tests/test_summary.py` — `_calculate_summary()` totals plus CLI option validation
+- `tests/test_batch.py` — batch URL loading, sequential batch runs, saved reports
+- `tests/test_downloader.py` — audio-only download command and 480p/720p OCR video selection
 
 ### Running tests
 
 ```bash
-uv run pytest tests/ -v                # All tests (132 total)
+uv run pytest tests/ -v                # All tests (139 total)
 uv run pytest tests/test_lot_model.py  # Model validation only
 uv run pytest tests/ -k test_br_       # Specific pattern (e.g., BR number format tests)
 ```
 
-All tests are pure unit tests — no external API calls, file I/O, or fixture dependencies. They validate the core data transformation logic:
+All tests are pure unit tests — no external API calls, live video downloads, or large fixture dependencies. They validate the core data transformation logic:
 - Brazilian number format parsing (3.100 = 3100.00, not 3.10)
 - Quantity vs lot number disambiguation
 - Sold status detection from LLM responses

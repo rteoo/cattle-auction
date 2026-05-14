@@ -149,3 +149,12 @@ class TestCliValidation:
         )
         assert result.exit_code != 0
         assert "Invalid value for '--screenshot-interval'" in result.output
+
+    def test_ocr_video_height_rejects_unsupported_resolution(self):
+        runner = CliRunner()
+        result = runner.invoke(
+            cli,
+            ["https://www.youtube.com/watch?v=test", "--ocr-video-height", "1080"],
+        )
+        assert result.exit_code != 0
+        assert "Invalid value for '--ocr-video-height'" in result.output

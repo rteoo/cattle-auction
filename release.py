@@ -2,16 +2,17 @@
 """
 cattle-auction release script.
 
-Creates a git tag, updates CHANGELOG.md and pyproject.toml, optionally
-generates a human-readable summary via local Ollama, and publishes
-a GitHub release via the gh CLI.
+Updates version metadata and CHANGELOG.md, runs tests, creates one release
+commit containing all intended repo changes, tags that commit, pushes main and
+the tag, and publishes a GitHub release via the gh CLI.
 
 Usage:
-    python release.py                 # auto-detect version from commits
-    python release.py 1.2.0           # explicit version
-    python release.py --dry-run       # preview without making changes
-    python release.py 1.2.0 --dry-run
-    python release.py --no-github     # tag only, skip GitHub release
+    python3 release.py                 # auto-detect version from commits/dirty tree
+    python3 release.py 1.2.0           # explicit version
+    python3 release.py --dry-run       # preview without making changes
+    python3 release.py 1.2.0 --dry-run
+    python3 release.py --no-github     # tag only, skip GitHub release
+    python3 release.py --no-tests      # skip pytest verification
 """
 
 import argparse
@@ -33,6 +34,22 @@ REPO = "TeodoroRodrigo/cattle-auction"
 CHANGELOG = "CHANGELOG.md"
 PYPROJECT = "pyproject.toml"
 GIT_AUTHOR = "TeodoroRodrigo <rteoo@users.noreply.github.com>"
+TEST_CMD = ["uv", "run", "pytest", "tests/", "-q"]
+
+STAGE_DIRS = ["bench/", "pipeline/", "models/", "prompts/", "tests/", ".github/"]
+STAGE_FILES = [
+    ".gitignore",
+    "AGENTS.md",
+    "CLAUDE.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "README.md",
+    "benchmark.py",
+    "main.py",
+    "pyproject.toml",
+    "release.py",
+    "uv.lock",
+]
 
 OLLAMA_URL = "http://localhost:11434/v1/chat/completions"
 OLLAMA_MODEL = "qwen3.5:2b-q4_K_M"
@@ -131,6 +148,14 @@ def parse_args():
         "--no-github", action="store_true",
         help="Tag only, skip GitHub release creation.",
     )
+    parser.add_argument(
+        "--no-tests", action="store_true",
+        help="Skip the release test command.",
+    )
+    parser.add_argument(
+        "--commit-message", default=None,
+        help="Commit message for the release commit. Defaults to 'chore: release vX.Y.Z'.",
+    )
     return parser.parse_args()
 
 
@@ -150,52 +175,66 @@ def check_prerequisites(skip_github):
             error("gh CLI not found — install from https://cli.github.com/")
             sys.exit(1)
         if not run_ok([gh, "auth", "status"]):
-            error("gh not authenticated — run: gh auth login")
-            sys.exit(1)
-        success("gh CLI authenticated")
+            info("gh auth status failed; continuing because gh release create may still work via available credentials")
+        else:
+            success("gh CLI authenticated")
 
     return gh
 
 
-# ── Commit pending changes ───────────────────────────────────────────────────
+# ── Working tree helpers ─────────────────────────────────────────────────────
 
-def commit_pending(dry_run):
-    pending = git("status", "--porcelain")
-    if not pending:
-        return
+def has_pending_changes():
+    return bool(git("status", "--porcelain"))
 
-    step("Committing pending changes...")
-    print(git("status", "--short"))
+
+# ── Stage and commit release changes ─────────────────────────────────────────
+
+def stage_release_changes(dry_run):
+    step("Staging release changes...")
+    pending = git("status", "--short")
+    if pending:
+        print(pending)
+    else:
+        info("Working tree is clean before release metadata updates")
 
     if dry_run:
-        info("Would commit all tracked changes")
+        info("Would stage tracked changes plus allowlisted source/docs files")
         return
 
-    # Stage tracked files only — avoids accidentally committing secrets or output
+    # Stage tracked modifications/deletions first, then allowlisted untracked files.
+    # This includes docs like AGENTS.md while still avoiding .env, output/, and
+    # other generated or secret-bearing files.
     git("add", "-u")
 
-    # Stage known source directories
-    for d in ["pipeline/", "models/", "prompts/", "tests/", ".github/"]:
+    for d in STAGE_DIRS:
         if Path(d).is_dir():
             try:
                 git("add", d)
             except subprocess.CalledProcessError:
                 pass
 
-    # Stage root config files
-    for f in [".gitignore", "pyproject.toml", "CLAUDE.md", "release.py",
-              "main.py", "CHANGELOG.md"]:
+    for f in STAGE_FILES:
         if Path(f).exists():
             try:
                 git("add", f)
             except subprocess.CalledProcessError:
                 pass
 
+
+def commit_release_changes(tag, message, dry_run):
+    step("Creating release commit...")
+
+    if dry_run:
+        info(f"Would commit staged changes with message: {message or f'chore: release {tag}'}")
+        return
+
     if git_ok("diff", "--cached", "--quiet"):
-        info("No relevant changes to commit")
-    else:
-        git_env("commit", "-m", "chore: pre-release changes")
-        success("Changes committed")
+        error("No staged release changes to commit")
+        sys.exit(1)
+
+    git_env("commit", "-m", message or f"chore: release {tag}")
+    success("Release commit created")
 
 
 # ── Version detection ────────────────────────────────────────────────────────
@@ -216,16 +255,13 @@ def detect_version(explicit_version):
     minor = int(parts[1]) if len(parts) > 1 else 0
     patch = int(parts[2]) if len(parts) > 2 else 0
 
+    pending = has_pending_changes()
     try:
         all_commits = git("log", f"{last_tag}..HEAD", "--oneline")
     except subprocess.CalledProcessError:
         all_commits = git("log", "--oneline")
 
-    if not all_commits:
-        error(f"No commits since {last_tag} — nothing to release")
-        sys.exit(1)
-
-    commit_lines = [l for l in all_commits.splitlines() if l.strip()]
+    commit_lines = [l for l in all_commits.splitlines() if l.strip()] if all_commits else []
 
     # Filter out release-machinery commits
     real_commits = [
@@ -239,8 +275,10 @@ def detect_version(explicit_version):
     info(f"Commits since {last_tag}: {len(commit_lines)} ({len(real_commits)} meaningful)")
     for line in commit_lines:
         dim(line)
+    if pending:
+        info("Working tree has pending changes that will be included in the release commit")
 
-    if not real_commits:
+    if not real_commits and not pending:
         error(f"Only release-machinery commits since {last_tag} — nothing meaningful to release")
         sys.exit(1)
 
@@ -267,6 +305,9 @@ def detect_version(explicit_version):
         sys.exit(1)
 
     success(f"Version: {tag}")
+    if pending and not real_commits:
+        real_commits = ["worktree: pending release changes"]
+
     return version, tag, last_tag, commit_lines, real_commits
 
 
@@ -289,13 +330,11 @@ def update_pyproject(version, dry_run):
         flags=re.MULTILINE,
     )
     path.write_text(updated, encoding="utf-8")
-    git("add", PYPROJECT)
 
-    if git_ok("diff", "--cached", "--quiet"):
+    if content == updated:
         info(f"Version already at {version}, no changes needed")
     else:
-        git_env("commit", "-m", f"chore: bump version to {version}")
-        success(f"{PYPROJECT} updated and committed")
+        success(f"{PYPROJECT} updated")
 
 
 # ── Build release notes ─────────────────────────────────────────────────────
@@ -466,6 +505,9 @@ def update_changelog(version, release_notes, dry_run):
     path = Path(CHANGELOG)
     if path.exists():
         content = path.read_text(encoding="utf-8")
+        if re.search(rf"^## \[{re.escape(version)}\]\b", content, re.MULTILINE):
+            info(f"CHANGELOG.md already has an entry for {version}")
+            return
         lines = content.split("\n", 1)
         if lines[0].startswith("# "):
             header = lines[0]
@@ -477,11 +519,26 @@ def update_changelog(version, release_notes, dry_run):
         updated = f"# Changelog\n\n{entry}\n"
 
     path.write_text(updated, encoding="utf-8")
-    git("add", CHANGELOG)
+    success("CHANGELOG.md updated")
 
-    if not git_ok("diff", "--cached", "--quiet"):
-        git_env("commit", "-m", f"docs: update CHANGELOG for v{version}")
-        success("CHANGELOG.md updated")
+
+# ── Tests ───────────────────────────────────────────────────────────────────
+
+def run_tests(skip_tests, dry_run):
+    step("Running release tests...")
+
+    if skip_tests:
+        info("Skipping tests by request")
+        return
+    if dry_run:
+        info("Would run: " + " ".join(TEST_CMD))
+        return
+    if not shutil.which(TEST_CMD[0]):
+        error(f"{TEST_CMD[0]} not found; cannot run release tests")
+        sys.exit(1)
+
+    run(TEST_CMD, capture=False)
+    success("Tests passed")
 
 
 # ── Tag ──────────────────────────────────────────────────────────────────────
@@ -548,15 +605,15 @@ def main():
     args = parse_args()
 
     gh = check_prerequisites(args.no_github)
-    commit_pending(args.dry_run)
-
     version, tag, last_tag, commit_lines, real_commits = detect_version(args.version)
-
     update_pyproject(version, args.dry_run)
 
     release_notes = build_release_notes(version, tag, last_tag, commit_lines, real_commits)
 
     update_changelog(version, release_notes, args.dry_run)
+    run_tests(args.no_tests, args.dry_run)
+    stage_release_changes(args.dry_run)
+    commit_release_changes(tag, args.commit_message, args.dry_run)
     create_tag(tag, args.dry_run)
     push(tag, args.dry_run)
 
@@ -564,8 +621,11 @@ def main():
         create_github_release(tag, release_notes, gh, args.dry_run)
 
     print()
-    success(f"Released {tag}")
-    if not args.no_github:
+    if args.dry_run:
+        success(f"Dry run complete for {tag}")
+    else:
+        success(f"Released {tag}")
+    if not args.no_github and not args.dry_run:
         print(f"  https://github.com/{REPO}/releases/tag/{tag}")
 
 

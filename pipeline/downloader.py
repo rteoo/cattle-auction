@@ -37,33 +37,35 @@ def get_video_info(url: str, output_dir: Path, video_id: str) -> dict:
     return result
 
 
-def download(url: str, output_dir: Path, video_id: str) -> tuple[Path, Path]:
-    """Download video and extract audio. Returns (video_path, audio_path)."""
-    video_path = output_dir / f"video_{video_id}.mp4"
+def download_audio(url: str, output_dir: Path, video_id: str) -> Path:
+    """Download audio only and convert it to 16 kHz mono WAV for transcription."""
     audio_path = output_dir / f"audio_{video_id}.wav"
+    source_path = _find_audio_source(output_dir, video_id)
 
-    if not video_path.exists():
+    if source_path is None:
         # Use the CLI directly so --remote-components is guaranteed to be passed.
         # The Python API doesn't reliably forward newer flags like this one.
         subprocess.run(
             [
                 "yt-dlp",
                 "--remote-components", "ejs:github",
-                "-o", str(video_path),
-                "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-                "--merge-output-format", "mp4",
+                "-f", "ba[ext=m4a]/ba",
+                "-o", str(output_dir / f"audio_source_{video_id}.%(ext)s"),
                 url,
             ],
             check=True,
         )
+        source_path = _find_audio_source(output_dir, video_id)
+        if source_path is None:
+            raise FileNotFoundError(f"Could not find downloaded audio source for {video_id}")
     else:
-        print(f"  Video already exists, skipping download.")
+        print("  Audio source already exists, skipping download.")
 
     if not audio_path.exists():
         subprocess.run(
             [
                 "ffmpeg",
-                "-i", str(video_path),
+                "-i", str(source_path),
                 "-ar", "16000",
                 "-ac", "1",
                 "-c:a", "pcm_s16le",
@@ -77,4 +79,61 @@ def download(url: str, output_dir: Path, video_id: str) -> tuple[Path, Path]:
     else:
         print(f"  Audio already extracted, skipping.")
 
+    return audio_path
+
+
+def download_ocr_video(
+    url: str,
+    output_dir: Path,
+    video_id: str,
+    height: int = 480,
+) -> Path:
+    """Download a low-resolution video for OCR screenshot extraction."""
+    if height not in (480, 720):
+        raise ValueError("OCR video height must be 480 or 720.")
+
+    video_path = output_dir / f"video_ocr_{video_id}_{height}p.mp4"
+    if video_path.exists():
+        print(f"  OCR video already exists, skipping download.")
+        return video_path
+
+    # Prefer video-only streams because screenshots do not need audio. Fall
+    # back to muxed streams if YouTube does not expose a matching video-only MP4.
+    format_selector = (
+        f"bv*[height<={height}][ext=mp4]/"
+        f"bv*[height<={height}]/"
+        f"best[height<={height}][ext=mp4]/"
+        f"best[height<={height}]"
+    )
+    subprocess.run(
+        [
+            "yt-dlp",
+            "--remote-components", "ejs:github",
+            "-f", format_selector,
+            "-o", str(video_path),
+            "--merge-output-format", "mp4",
+            url,
+        ],
+        check=True,
+    )
+    return video_path
+
+
+def download(
+    url: str,
+    output_dir: Path,
+    video_id: str,
+    ocr_video_height: int = 480,
+) -> tuple[Path, Path]:
+    """Compatibility wrapper. Returns (ocr_video_path, audio_path)."""
+    audio_path = download_audio(url, output_dir, video_id)
+    video_path = download_ocr_video(url, output_dir, video_id, height=ocr_video_height)
     return video_path, audio_path
+
+
+def _find_audio_source(output_dir: Path, video_id: str) -> Path | None:
+    candidates = sorted(output_dir.glob(f"audio_source_{video_id}.*"))
+    for path in candidates:
+        if path.suffix != ".part":
+            return path
+    return None
