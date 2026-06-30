@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "findingId": "fnd_sig-feat-library-bab0dfa1e8-63f5_260d910832",
+  "featureId": "feat_library_bab0dfa1e8",
+  "title": "Wheel metadata omits the documented CLI and prompt assets",
+  "category": "build-release",
+  "severity": "medium",
+  "confidence": "high",
+  "triage": "risk",
+  "evidence": [
+    {
+      "path": "pyproject.toml",
+      "startLine": 23,
+      "endLine": 28,
+      "symbol": "[tool.hatch.build.targets.wheel]",
+      "quote": "packages = [\"pipeline\", \"models\"]"
+    },
+    {
+      "path": "README.md",
+      "startLine": 56,
+      "endLine": 59,
+      "symbol": null,
+      "quote": "uv run python main.py <youtube_url> [OPTIONS]"
+    },
+    {
+      "path": "README.md",
+      "startLine": 13,
+      "endLine": 13,
+      "symbol": null,
+      "quote": "sends each window to an LLM with a structured PT-BR prompt"
+    }
+  ],
+  "reasoning": "The build metadata declares a Hatch wheel but only packages the two import packages. The documented CLI is the top-level main.py script, and extraction depends on prompt files outside those packages. A wheel built from this metadata will not expose the documented command path or ship the prompt assets, so installed consumers can get a package that cannot run the documented pipeline.",
+  "reproduction": null,
+  "recommendation": "Either make the project explicitly source-checkout-only, or package the CLI and assets: add a console script, include the top-level CLI module or move it into a package, and include prompts/*.txt as package data or force-included wheel files.",
+  "whyTestsDoNotAlreadyCoverThis": "The feature lists no linked tests, and the README test commands exercise the source tree rather than building and installing the wheel.",
+  "suggestedRegressionTest": "Build the wheel in CI, install it into a temporary environment, run the installed CLI help command, and assert the extraction, metadata, and verify prompt files are accessible without the repository root.",
+  "minimumFixScope": "pyproject.toml wheel/script metadata plus lock/build verification; possibly a small package-layout move if main.py is moved under an import package.",
+  "status": "open",
+  "history": [],
+  "signature": "sig_feat-library-bab0dfa1e8_63f51510be",
+  "linkedPatchAttemptIds": [],
+  "createdByRunId": "20260518T010934-1e802f",
+  "createdAt": "2026-05-18T01:12:47.603Z",
+  "updatedAt": "2026-05-18T01:12:47.603Z"
+}

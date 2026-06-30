@@ -232,7 +232,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **OpenCV Conflict** — Resolved `opencv-python` vs `opencv-contrib-python` conflict on macOS by pinning to `opencv-python-headless`. Prevents `cv2.cvtColor` AttributeError when running OCR.
 - **Python 3.14 Support** — Project now installs cleanly on Python 3.14 without native build failures.
-- **Author Attribution** — Git history now correctly shows TeodoroRodrigo as sole author.
+- **Author Attribution** — Git history now correctly shows rteoo as sole author.
 
 ## [1.0.0] - 2026-03-27
 
@@ -283,8 +283,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - rapidocr for text recognition
 - **Estimated Processing Time**: ~30-60 minutes for a 5-hour video on Apple Silicon M2 (varies by backend and configuration)
 
-[1.2.1]: https://github.com/TeodoroRodrigo/cattle-auction/releases/tag/v1.2.1
-[1.2.0]: https://github.com/TeodoroRodrigo/cattle-auction/releases/tag/v1.2.0
-[1.1.1]: https://github.com/TeodoroRodrigo/cattle-auction/releases/tag/v1.1.1
-[1.1.0]: https://github.com/TeodoroRodrigo/cattle-auction/releases/tag/v1.1.0
-[1.0.0]: https://github.com/TeodoroRodrigo/cattle-auction/releases/tag/v1.0.0
+[1.2.1]: https://github.com/rteoo/cattle-auction/releases/tag/v1.2.1
+[1.2.0]: https://github.com/rteoo/cattle-auction/releases/tag/v1.2.0
+[1.1.1]: https://github.com/rteoo/cattle-auction/releases/tag/v1.1.1
+[1.1.0]: https://github.com/rteoo/cattle-auction/releases/tag/v1.1.0
+[1.0.0]: https://github.com/rteoo/cattle-auction/releases/tag/v1.0.0

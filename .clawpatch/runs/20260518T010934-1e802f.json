@@ -1,0 +1,40 @@
+{
+  "schemaVersion": 1,
+  "runId": "20260518T010934-1e802f",
+  "command": "review",
+  "args": [
+    "review",
+    "--limit",
+    "10"
+  ],
+  "rootPath": "/Users/teodoro/Projects/cattle-auction",
+  "headSha": "3109dd882af0d4537bbb4d5daad061b2118ce08c",
+  "startedAt": "2026-05-18T01:09:34.678Z",
+  "finishedAt": "2026-05-18T01:14:38.670Z",
+  "status": "completed",
+  "claimedFeatureIds": [
+    "feat_library_08079f3e07",
+    "feat_library_184acbe1c1",
+    "feat_library_25faef2bc4",
+    "feat_library_88af11a688",
+    "feat_library_bab0dfa1e8",
+    "feat_test-suite_a6226f638f"
+  ],
+  "findingIds": [
+    "fnd_sig-feat-library-88af11a688-f8f4_8195c49e21",
+    "fnd_sig-feat-test-suite-a6226f638f-a_37b7b1a67a",
+    "fnd_sig-feat-test-suite-a6226f638f-b_4bb4a77747",
+    "fnd_sig-feat-test-suite-a6226f638f-e_108f1e6113",
+    "fnd_sig-feat-library-25faef2bc4-8442_c2381f1ba7",
+    "fnd_sig-feat-library-25faef2bc4-b373_f9d6e5de63",
+    "fnd_sig-feat-library-25faef2bc4-9bb6_839464dd89",
+    "fnd_sig-feat-library-bab0dfa1e8-63f5_260d910832",
+    "fnd_sig-feat-library-bab0dfa1e8-1ccd_957756fac0",
+    "fnd_sig-feat-library-bab0dfa1e8-86f8_8a8f333bf9",
+    "fnd_sig-feat-library-08079f3e07-cf29_d7684f94db",
+    "fnd_sig-feat-library-08079f3e07-5dad_10cd299817",
+    "fnd_sig-feat-library-08079f3e07-4582_2cde8b3ac3"
+  ],
+  "patchAttemptIds": [],
+  "errors": []
+}

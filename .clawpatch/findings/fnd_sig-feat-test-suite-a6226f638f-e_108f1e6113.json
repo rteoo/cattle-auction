@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "findingId": "fnd_sig-feat-test-suite-a6226f638f-e_108f1e6113",
+  "featureId": "feat_test-suite_a6226f638f",
+  "title": "Malformed verification timestamps are not covered at the integration point",
+  "category": "test-gap",
+  "severity": "low",
+  "confidence": "medium",
+  "triage": "test-gap",
+  "evidence": [
+    {
+      "path": "tests/test_extractor.py",
+      "startLine": 433,
+      "endLine": 435,
+      "symbol": "TestParseHHMMSS.test_invalid_raises",
+      "quote": "with pytest.raises(ValueError):"
+    },
+    {
+      "path": "tests/test_extractor.py",
+      "startLine": 548,
+      "endLine": 561,
+      "symbol": "TestVerifyLot.test_missing_timestamp_returns_none / test_timestamp_outside_any_window_returns_none",
+      "quote": "assert verdict is None"
+    }
+  ],
+  "reasoning": "The tests establish that `_parse_hhmmss` raises for malformed strings and that `_verify_lot` gracefully handles missing or out-of-window timestamps, but they never cover a malformed `timestamp_start` flowing through `_verify_lot`. Since timestamps are extracted from LLM output, this leaves the outlier verification path without coverage for untrusted malformed input.",
+  "reproduction": null,
+  "recommendation": "Add a `_verify_lot` test with `timestamp_start=\"not a timestamp\"` and assert it returns `None` without calling the client or aborting extraction.",
+  "whyTestsDoNotAlreadyCoverThis": "Parser validation and verifier behavior are tested separately, but the malformed timestamp handoff between them is not.",
+  "suggestedRegressionTest": "Construct `_flagged_lot(timestamp_start=\"not a timestamp\")`, call `_verify_lot`, and assert the result is `None` and `client.calls == []`.",
+  "minimumFixScope": "tests/test_extractor.py, plus `_verify_lot` error handling if the new test exposes an exception.",
+  "status": "open",
+  "history": [],
+  "signature": "sig_feat-test-suite-a6226f638f_e36bf22a39",
+  "linkedPatchAttemptIds": [],
+  "createdByRunId": "20260518T010934-1e802f",
+  "createdAt": "2026-05-18T01:12:25.182Z",
+  "updatedAt": "2026-05-18T01:12:25.182Z"
+}

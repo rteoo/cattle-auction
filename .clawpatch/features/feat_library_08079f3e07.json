@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 1,
+  "featureId": "feat_library_08079f3e07",
+  "title": "Python source pipeline",
+  "summary": "Python source group pipeline with 7 files.",
+  "kind": "library",
+  "source": "python-source-group",
+  "confidence": "medium",
+  "entrypoints": [
+    {
+      "path": "pipeline",
+      "symbol": "pipeline",
+      "route": null,
+      "command": null
+    }
+  ],
+  "ownedFiles": [
+    {
+      "path": "pipeline/__init__.py",
+      "reason": "source group pipeline"
+    },
+    {
+      "path": "pipeline/aggregator.py",
+      "reason": "source group pipeline"
+    },
+    {
+      "path": "pipeline/downloader.py",
+      "reason": "source group pipeline"
+    },
+    {
+      "path": "pipeline/extractor.py",
+      "reason": "source group pipeline"
+    },
+    {
+      "path": "pipeline/ocr.py",
+      "reason": "source group pipeline"
+    },
+    {
+      "path": "pipeline/screenshotter.py",
+      "reason": "source group pipeline"
+    },
+    {
+      "path": "pipeline/transcriber.py",
+      "reason": "source group pipeline"
+    }
+  ],
+  "contextFiles": [
+    {
+      "path": "tests/test_aggregator.py",
+      "reason": "associated test"
+    },
+    {
+      "path": "tests/test_downloader.py",
+      "reason": "associated test"
+    },
+    {
+      "path": "tests/test_extractor.py",
+      "reason": "associated test"
+    }
+  ],
+  "tests": [
+    {
+      "path": "tests/test_aggregator.py",
+      "command": "uv run pytest"
+    },
+    {
+      "path": "tests/test_downloader.py",
+      "command": "uv run pytest"
+    },
+    {
+      "path": "tests/test_extractor.py",
+      "command": "uv run pytest"
+    }
+  ],
+  "tags": [
+    "python",
+    "source-group"
+  ],
+  "trustBoundaries": [],
+  "status": "needs-fix",
+  "lock": null,
+  "findingIds": [
+    "fnd_sig-feat-library-08079f3e07-cf29_d7684f94db",
+    "fnd_sig-feat-library-08079f3e07-5dad_10cd299817",
+    "fnd_sig-feat-library-08079f3e07-4582_2cde8b3ac3"
+  ],
+  "patchAttemptIds": [],
+  "analysisHistory": [
+    {
+      "runId": "20260518T010934-1e802f",
+      "kind": "review",
+      "summary": "3 finding(s)",
+      "provider": "codex",
+      "model": null,
+      "createdAt": "2026-05-18T01:14:38.669Z"
+    }
+  ],
+  "createdAt": "2026-05-18T01:06:29.726Z",
+  "updatedAt": "2026-05-18T01:14:38.669Z"
+}

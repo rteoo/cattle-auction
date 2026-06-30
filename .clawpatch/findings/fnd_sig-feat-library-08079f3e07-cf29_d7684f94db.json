@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "findingId": "fnd_sig-feat-library-08079f3e07-cf29_d7684f94db",
+  "featureId": "feat_library_08079f3e07",
+  "title": "LLM failures are cached as successful extraction results",
+  "category": "data-loss",
+  "severity": "medium",
+  "confidence": "high",
+  "triage": "confirmed-bug",
+  "evidence": [
+    {
+      "path": "pipeline/extractor.py",
+      "startLine": 107,
+      "endLine": 109,
+      "symbol": "extract_lots",
+      "quote": null
+    },
+    {
+      "path": "pipeline/extractor.py",
+      "startLine": 127,
+      "endLine": 132,
+      "symbol": "extract_lots",
+      "quote": null
+    },
+    {
+      "path": "pipeline/extractor.py",
+      "startLine": 261,
+      "endLine": 263,
+      "symbol": "extract_lots",
+      "quote": null
+    },
+    {
+      "path": "pipeline/extractor.py",
+      "startLine": 591,
+      "endLine": 604,
+      "symbol": "extract_metadata",
+      "quote": null
+    }
+  ],
+  "reasoning": "If an LLM call fails for one lot window, extract_lots logs a warning, continues, then writes lots_<id>.json. A later run treats that partial file as a valid cache and skips extraction entirely. Metadata has the same pattern: any extraction error becomes cached empty metadata. This can silently produce incomplete auction results that resume will not repair without manual cache invalidation.",
+  "reproduction": null,
+  "recommendation": "Track whether any extraction or metadata call failed and do not write the normal checkpoint unless the stage completed successfully. Either raise so batch mode records a failed item, or write an explicit incomplete/error artifact that resume does not treat as success.",
+  "whyTestsDoNotAlreadyCoverThis": "tests/test_extractor.py exercises parsing, merge, verification, and a happy-path extract_lots burst case, but it does not simulate a client.complete exception during a multi-window extraction or assert cache behavior after failure.",
+  "suggestedRegressionTest": "Add an extract_lots test with two windows and a mock client that raises on one window; assert the normal output_path is not written and the caller sees a failure or explicit incomplete status. Add a metadata test that a client failure does not write cached {} as a successful metadata file.",
+  "minimumFixScope": "pipeline/extractor.py extract_lots and extract_metadata failure paths, plus focused tests in tests/test_extractor.py.",
+  "status": "open",
+  "history": [],
+  "signature": "sig_feat-library-08079f3e07_cf29bd02bb",
+  "linkedPatchAttemptIds": [],
+  "createdByRunId": "20260518T010934-1e802f",
+  "createdAt": "2026-05-18T01:14:38.665Z",
+  "updatedAt": "2026-05-18T01:14:38.665Z"
+}

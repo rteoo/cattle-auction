@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "findingId": "fnd_sig-feat-test-suite-a6226f638f-a_37b7b1a67a",
+  "featureId": "feat_test-suite_a6226f638f",
+  "title": "Currency assertions encode US separators for Brazilian R$ output",
+  "category": "api-contract",
+  "severity": "medium",
+  "confidence": "high",
+  "triage": "contract-mismatch",
+  "evidence": [
+    {
+      "path": "tests/test_batch.py",
+      "startLine": 136,
+      "endLine": 136,
+      "symbol": "test_batch_file_runs_urls_in_sequence_and_saves_report",
+      "quote": "assert \"| aaa | R$ 3,000.00 | - |\" in markdown"
+    },
+    {
+      "path": "tests/test_batch.py",
+      "startLine": 244,
+      "endLine": 245,
+      "symbol": "test_batch_report_uses_top_three_categories_for_price_comparison",
+      "quote": "assert \"| aaa | R$ 2,800.00 | R$ 3,600.00 | - |\" in markdown"
+    },
+    {
+      "path": "tests/test_extractor.py",
+      "startLine": 571,
+      "endLine": 574,
+      "symbol": "TestVerifyLot.test_prompt_includes_lot_details",
+      "quote": "assert \"6,800.00\" in user"
+    }
+  ],
+  "reasoning": "The repository contract says to preserve PT-BR terminology and Brazilian number formats, but these tests lock markdown reports and verification prompts to comma-thousands/dot-decimal formatting. A correct Brazilian rendering such as R$ 3.000,00 would fail the suite, while the current tests protect user-visible output that is wrong for the domain.",
+  "reproduction": null,
+  "recommendation": "Introduce or reuse a Brazilian currency formatter for report/prompt output, then update these assertions to expect dot thousands and comma decimals.",
+  "whyTestsDoNotAlreadyCoverThis": "The tests are the source of the mismatch: they assert the wrong locale format directly.",
+  "suggestedRegressionTest": "Update batch markdown and verify-prompt assertions to expect examples like `R$ 3.000,00`, `R$ 2.800,00`, and `6.800,00`.",
+  "minimumFixScope": "tests/test_batch.py, tests/test_extractor.py, and the formatting helper or call sites that currently emit currency strings.",
+  "status": "open",
+  "history": [],
+  "signature": "sig_feat-test-suite-a6226f638f_a7fa5f4b33",
+  "linkedPatchAttemptIds": [],
+  "createdByRunId": "20260518T010934-1e802f",
+  "createdAt": "2026-05-18T01:12:25.182Z",
+  "updatedAt": "2026-05-18T01:12:25.182Z"
+}

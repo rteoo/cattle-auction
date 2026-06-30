@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "findingId": "fnd_sig-feat-library-bab0dfa1e8-1ccd_957756fac0",
+  "featureId": "feat_library_bab0dfa1e8",
+  "title": "OpenCV headless constraint does not replace RapidOCR's OpenCV dependency",
+  "category": "build-release",
+  "severity": "medium",
+  "confidence": "high",
+  "triage": "risk",
+  "evidence": [
+    {
+      "path": "pyproject.toml",
+      "startLine": 15,
+      "endLine": 16,
+      "symbol": "[project].dependencies",
+      "quote": "\"rapidocr-onnxruntime>=1.4.4\", \"opencv-python-headless>=4.5\","
+    },
+    {
+      "path": "pyproject.toml",
+      "startLine": 30,
+      "endLine": 36,
+      "symbol": "[tool.uv].constraint-dependencies",
+      "quote": "This override tells uv to satisfy opencv-python requirements with opencv-python-headless instead."
+    }
+  ],
+  "reasoning": "A uv constraint on opencv-python-headless constrains that distribution; it does not alias or satisfy a differently named transitive requirement on opencv-python. Because the metadata also adds opencv-python-headless as a direct dependency, the resolver can still install the GUI opencv-python wheel required by RapidOCR alongside the headless wheel, defeating the stated macOS GUI-lib avoidance and increasing install size/conflict risk.",
+  "reproduction": null,
+  "recommendation": "Use a supported dependency strategy that actually removes opencv-python from the resolved environment, or remove the misleading headless override and document that the GUI OpenCV wheel is still installed. Regenerate the lockfile after the metadata change.",
+  "whyTestsDoNotAlreadyCoverThis": "Unit tests can pass when both cv2-providing wheels are installed; there is no dependency-tree or lockfile assertion for the intended headless-only environment.",
+  "suggestedRegressionTest": "Add a CI metadata check that resolves dependencies and fails if opencv-python appears in the lock/tree when the intended base install is headless-only.",
+  "minimumFixScope": "pyproject.toml dependency/uv configuration and uv.lock regeneration.",
+  "status": "open",
+  "history": [],
+  "signature": "sig_feat-library-bab0dfa1e8_1ccd7d925e",
+  "linkedPatchAttemptIds": [],
+  "createdByRunId": "20260518T010934-1e802f",
+  "createdAt": "2026-05-18T01:12:47.603Z",
+  "updatedAt": "2026-05-18T01:12:47.603Z"
+}

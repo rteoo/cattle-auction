@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "findingId": "fnd_sig-feat-test-suite-a6226f638f-b_4bb4a77747",
+  "featureId": "feat_test-suite_a6226f638f",
+  "title": "Batch CLI tests do not protect batch option semantics",
+  "category": "test-gap",
+  "severity": "medium",
+  "confidence": "high",
+  "triage": "test-gap",
+  "evidence": [
+    {
+      "path": "tests/test_batch.py",
+      "startLine": 66,
+      "endLine": 68,
+      "symbol": "test_batch_file_runs_urls_in_sequence_and_saves_report",
+      "quote": "calls.append((url, kwargs[\"output_dir\"]))"
+    },
+    {
+      "path": "tests/test_batch.py",
+      "startLine": 91,
+      "endLine": 108,
+      "symbol": "test_batch_file_runs_urls_in_sequence_and_saves_report",
+      "quote": "assert [call[0] for call in calls] == ["
+    },
+    {
+      "path": "tests/test_batch.py",
+      "startLine": 154,
+      "endLine": 175,
+      "symbol": "test_batch_continues_after_failed_url_and_records_error",
+      "quote": "assert report[\"items\"][1][\"status\"] == \"success\""
+    }
+  ],
+  "reasoning": "The batch success test records `output_dir` but only asserts URL order, and it never passes or verifies provider, transcriber, no-resume, screenshot interval, OCR height, or display flags. The failure test covers default continue-after-error behavior but not `--stop-on-error`. A regression that drops user-selected batch options or ignores stop-on-error would still pass, which is risky because batch mode can multiply runtime and API cost.",
+  "reproduction": null,
+  "recommendation": "Assert the full kwargs passed to `_run_single_url` in batch mode and add a stop-on-error test that proves the second URL is not processed after the first failure.",
+  "whyTestsDoNotAlreadyCoverThis": "Existing batch tests focus on report contents and URL sequencing, not the option-forwarding contract or stop-on-error branch.",
+  "suggestedRegressionTest": "Invoke `cli` with `--provider openai --transcriber cpp --whisper-model small --screenshot-interval 45 --ocr-video-height 720 --no-resume --no-summary --stop-on-error` and assert `_run_single_url` receives those values and stops after the failing first URL.",
+  "minimumFixScope": "tests/test_batch.py.",
+  "status": "open",
+  "history": [],
+  "signature": "sig_feat-test-suite-a6226f638f_b5b14438e3",
+  "linkedPatchAttemptIds": [],
+  "createdByRunId": "20260518T010934-1e802f",
+  "createdAt": "2026-05-18T01:12:25.182Z",
+  "updatedAt": "2026-05-18T01:12:25.182Z"
+}

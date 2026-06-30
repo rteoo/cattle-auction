@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "findingId": "fnd_sig-feat-library-25faef2bc4-b373_f9d6e5de63",
+  "featureId": "feat_library_25faef2bc4",
+  "title": "Benchmark crashes when video is cached but audio is missing",
+  "category": "bug",
+  "severity": "low",
+  "confidence": "high",
+  "triage": "confirmed-bug",
+  "evidence": [
+    {
+      "path": "benchmark.py",
+      "startLine": 36,
+      "endLine": 41,
+      "symbol": "download_small",
+      "quote": "if not video_path.exists():\n        import os\n        env = os.environ.copy()\n        # Ensure winget-installed tools are on PATH\n        winget_links = os.path.expanduser(\"~\") + \"\\\\AppData\\\\Local\\\\Microsoft\\\\WinGet\\\\Links\"\n        env[\"PATH\"] = winget_links + \";\" + env.get(\"PATH\", \"\")"
+    },
+    {
+      "path": "benchmark.py",
+      "startLine": 58,
+      "endLine": 75,
+      "symbol": "download_small",
+      "quote": "if not audio_path.exists():\n        ffmpeg_path = os.path.join(winget_links, \"ffmpeg.exe\")\n        if not os.path.exists(ffmpeg_path):\n            ffmpeg_path = \"ffmpeg\"\n        subprocess.run("
+    }
+  ],
+  "reasoning": "`os`, `env`, and `winget_links` are initialized only inside the video-download branch. If a previous benchmark run already produced `video_<id>.mp4` but failed before producing `audio_<id>.wav`, the audio extraction branch references those locals before assignment and aborts instead of extracting audio from the cached video.",
+  "reproduction": "Place `video_abc.mp4` in the benchmark run directory without `audio_abc.wav`, then call `download_small(url, run_dir, 'abc')`; the function reaches the audio branch with uninitialized `os`/`winget_links`/`env`.",
+  "recommendation": "Move `import os`, `env`, and `winget_links` initialization to the top of `download_small`, before either cache check, and keep platform-specific path handling separate from the cache state.",
+  "whyTestsDoNotAlreadyCoverThis": "No linked test imports or exercises `benchmark.py`; the failure only appears in a partial-cache state after an interrupted benchmark run.",
+  "suggestedRegressionTest": "Add a benchmark helper test that pre-creates the video file, monkeypatches `subprocess.run`, calls `download_small`, and asserts the ffmpeg command is built without an unbound local failure.",
+  "minimumFixScope": "`benchmark.py` `download_small` initialization order and a small unit test or smoke test around partial benchmark caches.",
+  "status": "open",
+  "history": [],
+  "signature": "sig_feat-library-25faef2bc4_b37312abaa",
+  "linkedPatchAttemptIds": [],
+  "createdByRunId": "20260518T010934-1e802f",
+  "createdAt": "2026-05-18T01:12:31.066Z",
+  "updatedAt": "2026-05-18T01:12:31.066Z"
+}

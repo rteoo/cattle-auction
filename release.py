@@ -30,10 +30,10 @@ from pathlib import Path
 
 REMOTE = "origin"
 BRANCH = "main"
-REPO = "TeodoroRodrigo/cattle-auction"
+REPO = "rteoo/cattle-auction"
 CHANGELOG = "CHANGELOG.md"
 PYPROJECT = "pyproject.toml"
-GIT_AUTHOR = "TeodoroRodrigo <rteoo@users.noreply.github.com>"
+GIT_AUTHOR = "rteoo <rteoo@users.noreply.github.com>"
 TEST_CMD = ["uv", "run", "pytest", "tests/", "-q"]
 
 STAGE_DIRS = ["bench/", "pipeline/", "models/", "prompts/", "tests/", ".github/"]

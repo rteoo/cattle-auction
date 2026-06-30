@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "findingId": "fnd_sig-feat-library-88af11a688-f8f4_8195c49e21",
+  "featureId": "feat_library_88af11a688",
+  "title": "Price coercion silently turns invalid values into persisted prices",
+  "category": "bug",
+  "severity": "medium",
+  "confidence": "high",
+  "triage": "confirmed-bug",
+  "evidence": [
+    {
+      "path": "models/lot.py",
+      "startLine": 31,
+      "endLine": 34,
+      "symbol": "coerce_price_value",
+      "quote": "f = float(v)\n    if 0 < f < 100:\n        f = f * 1000\n    return f"
+    },
+    {
+      "path": "models/lot.py",
+      "startLine": 58,
+      "endLine": 61,
+      "symbol": "Lot.coerce_price",
+      "quote": "@field_validator(\"unit_price\", \"total_price\", mode=\"before\")\n    @classmethod\n    def coerce_price(cls, v):\n        return coerce_price_value(v)"
+    }
+  ],
+  "reasoning": "The price validator accepts anything float() can parse and returns it without rejecting booleans, negative values, or non-finite numbers. Because bool is numeric in Python, unit_price=True becomes 1000.0 after the under-100 repair; strings like \"-3.100,00\" become -3100.0; \"NaN\" and \"Infinity\" survive as floats. These are not valid auction prices and can be written into the durable model/output instead of being rejected or nulled.",
+  "reproduction": "Lot(lot_number=1, sex=\"macho\", category=\"bezerro\", num_animals=5, breed=\"Nelore\", unit_price=True).unit_price returns 1000.0; unit_price=\"-3.100,00\" returns -3100.0; unit_price=\"NaN\" returns nan.",
+  "recommendation": "After parsing, reject bool before numeric conversion and require the parsed float to be finite and non-negative. Choose the existing pipeline policy explicitly: either raise a validation error for invalid price inputs, or return None so later windows can recover the value.",
+  "whyTestsDoNotAlreadyCoverThis": "The feature metadata lists no linked tests. Existing lot model tests cover valid Brazilian formats, empty strings, zero, and the under-100 repair, but not bool, negative, NaN, or Infinity price inputs.",
+  "suggestedRegressionTest": "Add tests in tests/test_lot_model.py asserting unit_price and total_price reject or null True/False, negative numeric/string values, NaN, and Infinity.",
+  "minimumFixScope": "models/lot.py price coercion plus focused Lot model tests for invalid price inputs.",
+  "status": "open",
+  "history": [],
+  "signature": "sig_feat-library-88af11a688_f8f4a9f696",
+  "linkedPatchAttemptIds": [],
+  "createdByRunId": "20260518T010934-1e802f",
+  "createdAt": "2026-05-18T01:12:06.172Z",
+  "updatedAt": "2026-05-18T01:12:06.172Z"
+}

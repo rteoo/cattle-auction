@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "findingId": "fnd_sig-feat-library-25faef2bc4-8442_c2381f1ba7",
+  "featureId": "feat_library_25faef2bc4",
+  "title": "--no-resume leaves media stage outputs in place despite promising a full rerun",
+  "category": "api-contract",
+  "severity": "medium",
+  "confidence": "high",
+  "triage": "contract-mismatch",
+  "evidence": [
+    {
+      "path": "main.py",
+      "startLine": 98,
+      "endLine": 102,
+      "symbol": "cli",
+      "quote": "@click.option(\n    \"--no-resume\",\n    is_flag=True,\n    default=False,\n    help=\"Ignore cached stage outputs and rerun everything.\","
+    },
+    {
+      "path": "main.py",
+      "startLine": 859,
+      "endLine": 875,
+      "symbol": "_clear_cache",
+      "quote": "for name in [\n        f\"video_info_{video_id}.json\",\n        f\"transcript_{video_id}.json\",\n        f\"screenshots_{video_id}.json\",\n        f\"ocr_results_{video_id}.json\",\n        f\"lots_{video_id}.json\",\n        f\"metadata_{video_id}.json\",\n        f\"result_{video_id}.json\",\n    ]:"
+    }
+  ],
+  "reasoning": "The CLI contract says `--no-resume` ignores cached stage outputs and reruns everything, but `_clear_cache` only removes JSON/checkpoint files and the screenshots directory. It leaves media artifacts such as audio sources, extracted WAVs, and OCR videos untouched, so a user trying to recover from a stale or corrupt media stage can still rerun against old stage outputs.",
+  "reproduction": "Create a run directory containing `audio_<id>.wav`, `audio_source_<id>.m4a`, and `video_ocr_<id>_480p.mp4`, then invoke the CLI with `--no-resume`; `_clear_cache` does not remove those media files before the download stages run.",
+  "recommendation": "Either extend `_clear_cache` to remove every stage artifact covered by the `--no-resume` contract, including audio source files, WAV files, and OCR videos for the selected video/resolution, or narrow the CLI help/docs to state that media downloads are intentionally retained.",
+  "whyTestsDoNotAlreadyCoverThis": "The linked tests cover option validation, summary math, and batch reports, but no test exercises `_clear_cache` or asserts which artifacts `--no-resume` invalidates.",
+  "suggestedRegressionTest": "Add a focused test that seeds a run directory with all stage artifact names, calls `_clear_cache(run_dir, video_id)`, and asserts the files expected to be invalidated by `--no-resume` are removed.",
+  "minimumFixScope": "`main.py` `_clear_cache` plus a focused unit test for cache invalidation semantics.",
+  "status": "open",
+  "history": [],
+  "signature": "sig_feat-library-25faef2bc4_84428c398f",
+  "linkedPatchAttemptIds": [],
+  "createdByRunId": "20260518T010934-1e802f",
+  "createdAt": "2026-05-18T01:12:31.066Z",
+  "updatedAt": "2026-05-18T01:12:31.066Z"
+}

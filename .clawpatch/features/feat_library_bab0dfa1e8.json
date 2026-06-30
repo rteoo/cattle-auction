@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "featureId": "feat_library_bab0dfa1e8",
+  "title": "Python project cattle-auction",
+  "summary": "Python project metadata in pyproject.toml.",
+  "kind": "library",
+  "source": "python-project",
+  "confidence": "medium",
+  "entrypoints": [
+    {
+      "path": "pyproject.toml",
+      "symbol": "cattle-auction",
+      "route": null,
+      "command": null
+    }
+  ],
+  "ownedFiles": [
+    {
+      "path": "pyproject.toml",
+      "reason": "python project metadata"
+    }
+  ],
+  "contextFiles": [
+    {
+      "path": "README.md",
+      "reason": "python project context"
+    }
+  ],
+  "tests": [],
+  "tags": [
+    "python",
+    "package"
+  ],
+  "trustBoundaries": [],
+  "status": "needs-fix",
+  "lock": null,
+  "findingIds": [
+    "fnd_sig-feat-library-bab0dfa1e8-63f5_260d910832",
+    "fnd_sig-feat-library-bab0dfa1e8-1ccd_957756fac0",
+    "fnd_sig-feat-library-bab0dfa1e8-86f8_8a8f333bf9"
+  ],
+  "patchAttemptIds": [],
+  "analysisHistory": [
+    {
+      "runId": "20260518T010934-1e802f",
+      "kind": "review",
+      "summary": "3 finding(s)",
+      "provider": "codex",
+      "model": null,
+      "createdAt": "2026-05-18T01:12:47.606Z"
+    }
+  ],
+  "createdAt": "2026-05-18T01:06:29.726Z",
+  "updatedAt": "2026-05-18T01:12:47.606Z"
+}

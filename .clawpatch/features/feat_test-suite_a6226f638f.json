@@ -1,0 +1,120 @@
+{
+  "schemaVersion": 1,
+  "featureId": "feat_test-suite_a6226f638f",
+  "title": "Python test suite tests",
+  "summary": "Python pytest files in tests.",
+  "kind": "test-suite",
+  "source": "python-test-suite",
+  "confidence": "medium",
+  "entrypoints": [
+    {
+      "path": "tests",
+      "symbol": "tests",
+      "route": null,
+      "command": null
+    }
+  ],
+  "ownedFiles": [
+    {
+      "path": "tests/test_aggregator.py",
+      "reason": "pytest file"
+    },
+    {
+      "path": "tests/test_batch.py",
+      "reason": "pytest file"
+    },
+    {
+      "path": "tests/test_downloader.py",
+      "reason": "pytest file"
+    },
+    {
+      "path": "tests/test_extractor.py",
+      "reason": "pytest file"
+    },
+    {
+      "path": "tests/test_lot_model.py",
+      "reason": "pytest file"
+    },
+    {
+      "path": "tests/test_summary.py",
+      "reason": "pytest file"
+    }
+  ],
+  "contextFiles": [
+    {
+      "path": "tests/test_aggregator.py",
+      "reason": "nearby test"
+    },
+    {
+      "path": "tests/test_batch.py",
+      "reason": "nearby test"
+    },
+    {
+      "path": "tests/test_downloader.py",
+      "reason": "nearby test"
+    },
+    {
+      "path": "tests/test_extractor.py",
+      "reason": "nearby test"
+    },
+    {
+      "path": "tests/test_lot_model.py",
+      "reason": "nearby test"
+    },
+    {
+      "path": "tests/test_summary.py",
+      "reason": "nearby test"
+    }
+  ],
+  "tests": [
+    {
+      "path": "tests/test_aggregator.py",
+      "command": "uv run pytest"
+    },
+    {
+      "path": "tests/test_batch.py",
+      "command": "uv run pytest"
+    },
+    {
+      "path": "tests/test_downloader.py",
+      "command": "uv run pytest"
+    },
+    {
+      "path": "tests/test_extractor.py",
+      "command": "uv run pytest"
+    },
+    {
+      "path": "tests/test_lot_model.py",
+      "command": "uv run pytest"
+    },
+    {
+      "path": "tests/test_summary.py",
+      "command": "uv run pytest"
+    }
+  ],
+  "tags": [
+    "python",
+    "test"
+  ],
+  "trustBoundaries": [],
+  "status": "needs-fix",
+  "lock": null,
+  "findingIds": [
+    "fnd_sig-feat-test-suite-a6226f638f-a_37b7b1a67a",
+    "fnd_sig-feat-test-suite-a6226f638f-b_4bb4a77747",
+    "fnd_sig-feat-test-suite-a6226f638f-e_108f1e6113"
+  ],
+  "patchAttemptIds": [],
+  "analysisHistory": [
+    {
+      "runId": "20260518T010934-1e802f",
+      "kind": "review",
+      "summary": "3 finding(s)",
+      "provider": "codex",
+      "model": null,
+      "createdAt": "2026-05-18T01:12:25.185Z"
+    }
+  ],
+  "createdAt": "2026-05-18T01:06:29.726Z",
+  "updatedAt": "2026-05-18T01:12:25.185Z"
+}

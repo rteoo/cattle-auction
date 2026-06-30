@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "findingId": "fnd_sig-feat-library-08079f3e07-5dad_10cd299817",
+  "featureId": "feat_library_08079f3e07",
+  "title": "Malformed outlier timestamps can crash price verification",
+  "category": "bug",
+  "severity": "low",
+  "confidence": "high",
+  "triage": "confirmed-bug",
+  "evidence": [
+    {
+      "path": "pipeline/extractor.py",
+      "startLine": 281,
+      "endLine": 286,
+      "symbol": "_verify_lot",
+      "quote": null
+    },
+    {
+      "path": "pipeline/extractor.py",
+      "startLine": 363,
+      "endLine": 369,
+      "symbol": "_parse_hhmmss",
+      "quote": null
+    },
+    {
+      "path": "tests/test_extractor.py",
+      "startLine": 548,
+      "endLine": 561,
+      "symbol": "TestVerifyLot",
+      "quote": null
+    }
+  ],
+  "reasoning": "_verify_lot treats missing or out-of-window timestamps as unverifiable, but a present malformed timestamp is passed directly to _parse_hhmmss, which raises ValueError. Because LLM-generated timestamp_start is only a plain string on Lot, an outlier with a value like '5:00' or '00:05:00.000' can abort the whole extraction instead of returning None and letting the caller discard only that price.",
+  "reproduction": null,
+  "recommendation": "Catch ValueError/TypeError around _parse_hhmmss inside _verify_lot and return None, or normalize/validate timestamp_start before verification.",
+  "whyTestsDoNotAlreadyCoverThis": "The tests cover missing timestamps and timestamps outside all windows, but they do not cover a malformed non-empty timestamp reaching _verify_lot.",
+  "suggestedRegressionTest": "Add a _verify_lot test with timestamp_start='5:00' or 'not a timestamp' and assert it returns None without calling the client.",
+  "minimumFixScope": "pipeline/extractor.py _verify_lot plus one test in tests/test_extractor.py.",
+  "status": "open",
+  "history": [],
+  "signature": "sig_feat-library-08079f3e07_5dadb6d26b",
+  "linkedPatchAttemptIds": [],
+  "createdByRunId": "20260518T010934-1e802f",
+  "createdAt": "2026-05-18T01:14:38.665Z",
+  "updatedAt": "2026-05-18T01:14:38.665Z"
+}

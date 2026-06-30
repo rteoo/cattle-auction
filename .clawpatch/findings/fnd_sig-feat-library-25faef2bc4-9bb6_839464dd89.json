@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "findingId": "fnd_sig-feat-library-25faef2bc4-9bb6_839464dd89",
+  "featureId": "feat_library_25faef2bc4",
+  "title": "Batch markdown report does not escape dynamic table cells",
+  "category": "bug",
+  "severity": "low",
+  "confidence": "high",
+  "triage": "confirmed-bug",
+  "evidence": [
+    {
+      "path": "main.py",
+      "startLine": 588,
+      "endLine": 602,
+      "symbol": "_format_batch_markdown",
+      "quote": "for item in report[\"items\"]:\n        if item[\"status\"] == \"success\":\n            lines.append(\n                \"| success \"\n                f\"| {item['video_id']} \"\n                f\"| {_batch_text(item.get('date'))} \"\n                f\"| {_batch_text(item.get('city'))} \"\n                f\"| {_batch_text(_item_auction_name(item))} \"\n                f\"| {_batch_text(_item_auctioneer(item))} \"\n                f\"| {item['total_lots']} \"\n                f\"| {item['total_animals']} \"\n                f\"| {item['avg_price']:.2f} |\"\n            )\n        else:\n            lines.append(f\"| failed | {item['url']} | - | - | - | - | 0 | 0 | 0.00 |\")"
+    },
+    {
+      "path": "main.py",
+      "startLine": 604,
+      "endLine": 621,
+      "symbol": "_format_batch_markdown",
+      "quote": "if price_categories:\n        lines.extend(\n            [\n                \"\",\n                \"## Preço por Categoria\",\n                \"\",\n                \"| Video | \" + \" | \".join(price_categories) + \" |\",\n                \"|---|\" + \"|\".join(\"---:\" for _ in price_categories) + \"|\",\n            ]\n        )"
+    }
+  ],
+  "reasoning": "Batch markdown cells are populated from extracted metadata, failed URLs, and category names. Those values can contain Markdown table metacharacters such as `|` or newlines, and the formatter interpolates them directly, producing malformed `comparison.md` tables with extra columns or broken rows.",
+  "reproduction": "Build a batch report with `city='Campo Grande | MS'` or a category named `bezerro | nelore`, then call `_format_batch_markdown(report)`; the rendered table row/header no longer has the intended column count.",
+  "recommendation": "Add a small Markdown table-cell escaping helper and apply it to every dynamic table cell and header value before joining rows, including failed URLs and price category names.",
+  "whyTestsDoNotAlreadyCoverThis": "The linked batch tests assert happy-path markdown strings with ordinary metadata and category names, but they do not include pipes, newlines, or other table-breaking characters.",
+  "suggestedRegressionTest": "Add a batch report test with metadata and category names containing `|` and newlines, then assert the rendered markdown escapes pipes and keeps stable table columns.",
+  "minimumFixScope": "`main.py` batch markdown formatting helpers plus focused `tests/test_batch.py` coverage.",
+  "status": "open",
+  "history": [],
+  "signature": "sig_feat-library-25faef2bc4_9bb6722657",
+  "linkedPatchAttemptIds": [],
+  "createdByRunId": "20260518T010934-1e802f",
+  "createdAt": "2026-05-18T01:12:31.066Z",
+  "updatedAt": "2026-05-18T01:12:31.066Z"
+}

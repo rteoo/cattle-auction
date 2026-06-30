@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "findingId": "fnd_sig-feat-library-bab0dfa1e8-86f8_8a8f333bf9",
+  "featureId": "feat_library_bab0dfa1e8",
+  "title": "Base install includes unsupported Anthropic SDK",
+  "category": "maintainability",
+  "severity": "low",
+  "confidence": "high",
+  "triage": "risk",
+  "evidence": [
+    {
+      "path": "pyproject.toml",
+      "startLine": 8,
+      "endLine": 8,
+      "symbol": "[project].dependencies",
+      "quote": "\"anthropic>=0.40.0\","
+    },
+    {
+      "path": "README.md",
+      "startLine": 52,
+      "endLine": 52,
+      "symbol": null,
+      "quote": "The default run uses OpenRouter for extraction and Groq for transcription"
+    },
+    {
+      "path": "README.md",
+      "startLine": 180,
+      "endLine": 185,
+      "symbol": null,
+      "quote": "Provider | Flag | Default model | Auth"
+    }
+  ],
+  "reasoning": "The project metadata installs anthropic for every base environment, but the documented provider surface only includes OpenRouter and OpenAI for extraction, with Groq used for transcription. Repository search found no runtime Anthropic import. This stale dependency increases install size, lock churn, and supply-chain surface while implying support for a provider that the CLI/docs do not expose.",
+  "reproduction": null,
+  "recommendation": "Remove anthropic from base dependencies and regenerate the lockfile, unless Anthropic support is intentionally being reintroduced with CLI flags, env documentation, implementation, and tests.",
+  "whyTestsDoNotAlreadyCoverThis": "The tests do not compare dependency metadata against the supported provider registry, and unused installed packages do not affect pure unit-test behavior.",
+  "suggestedRegressionTest": "Add a lightweight metadata test that parses pyproject.toml and asserts base provider SDK dependencies match the supported provider list.",
+  "minimumFixScope": "pyproject.toml and uv.lock; docs/tests only if Anthropic support is actually added.",
+  "status": "open",
+  "history": [],
+  "signature": "sig_feat-library-bab0dfa1e8_86f8b62b05",
+  "linkedPatchAttemptIds": [],
+  "createdByRunId": "20260518T010934-1e802f",
+  "createdAt": "2026-05-18T01:12:47.603Z",
+  "updatedAt": "2026-05-18T01:12:47.603Z"
+}

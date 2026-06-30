@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "findingId": "fnd_sig-feat-library-08079f3e07-4582_2cde8b3ac3",
+  "featureId": "feat_library_08079f3e07",
+  "title": "Library transcription default still selects optional local MLX backend",
+  "category": "api-contract",
+  "severity": "low",
+  "confidence": "high",
+  "triage": "contract-mismatch",
+  "evidence": [
+    {
+      "path": "pipeline/transcriber.py",
+      "startLine": 38,
+      "endLine": 57,
+      "symbol": "transcribe",
+      "quote": null
+    },
+    {
+      "path": "pipeline/transcriber.py",
+      "startLine": 68,
+      "endLine": 75,
+      "symbol": "_transcribe_mlx",
+      "quote": null
+    },
+    {
+      "path": "AGENTS.md",
+      "startLine": 215,
+      "endLine": 223,
+      "symbol": null,
+      "quote": null
+    }
+  ],
+  "reasoning": "The repository contract says Groq is the default transcriber and warns not to make the default local-only, but the packaged pipeline API still defaults transcribe(..., backend='mlx'). A direct library caller using the normal non-local setup will hit the optional mlx_whisper import error instead of the documented Groq default. The CLI passes an explicit backend, so this mainly affects the pipeline library surface.",
+  "reproduction": null,
+  "recommendation": "Change the transcribe default to 'groq' and update the module docstring, or make the default explicit-only if the library API should not choose a backend.",
+  "whyTestsDoNotAlreadyCoverThis": "The linked tests cover aggregator, downloader, and extractor behavior, but there is no transcriber test asserting the default backend selection or the normal setup without the local extra.",
+  "suggestedRegressionTest": "Add a transcriber unit test that monkeypatches _transcribe_groq/_transcribe_mlx and asserts transcribe(..., output_path missing) dispatches to Groq when backend is omitted.",
+  "minimumFixScope": "pipeline/transcriber.py default argument/docstring plus a focused transcriber test.",
+  "status": "open",
+  "history": [],
+  "signature": "sig_feat-library-08079f3e07_4582d11200",
+  "linkedPatchAttemptIds": [],
+  "createdByRunId": "20260518T010934-1e802f",
+  "createdAt": "2026-05-18T01:14:38.665Z",
+  "updatedAt": "2026-05-18T01:14:38.665Z"
+}
