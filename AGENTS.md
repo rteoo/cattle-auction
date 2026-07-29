@@ -216,7 +216,7 @@ When changing extraction behavior, update or add tests in `tests/test_extractor.
 
 | Backend | Flag | Notes |
 |---|---|---|
-| Groq API | `--transcriber groq` | Default. Requires `GROQ_API_KEY`. Converts audio to 32 kbps MP3 and splits large files into 15-minute chunks. |
+| Groq API | `--transcriber groq` | Default. Requires `GROQ_API_KEY`. Converts audio to 32 kbps MP3 and splits files over 20 MB into 15-minute chunks. |
 | MLX Whisper | `--transcriber mlx` | Apple Silicon local backend. Requires `uv sync --extra local`. |
 | whisper.cpp | `--transcriber cpp` | Local backend using `whisper-cli`. Requires `whisper-cpp` and a ggml model. |
 
