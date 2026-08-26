@@ -7,7 +7,14 @@ from rich.progress import BarColumn, Progress, TaskProgressColumn, TextColumn, T
 
 from pipeline.scenes import detect_scene_changes
 
-_MIN_GAP = 2.0  # minimum spacing (seconds) between kept timestamps in scene sampling
+# Minimum spacing (seconds) between kept timestamps in scene sampling.
+#
+# Load-bearing invariant, not just a tuning knob: pipeline/ocr.py keys its
+# results dict by `timestamp_str` (HH:MM:SS), so two frames that round to the
+# same second would silently overwrite each other and lose one frame's OCR
+# text. Any value >= 1.0 makes that collision impossible. Do not lower this
+# below 1.0 without giving OCR results a key that survives sub-second spacing.
+_MIN_GAP = 2.0
 
 
 @dataclass

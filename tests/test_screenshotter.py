@@ -323,3 +323,32 @@ def test_matching_params_uses_cache_without_reextracting(monkeypatch, tmp_path):
 
     assert [s.seconds for s in shots] == [0]
     assert frame.exists()
+
+
+def test_scene_timestamps_never_collide_on_the_ocr_dict_key(monkeypatch, tmp_path):
+    """pipeline/ocr.py keys by timestamp_str, so two frames must never share one.
+
+    Detections deliberately land sub-second apart and on top of grid points;
+    the _MIN_GAP collapse is what keeps every surviving frame on its own second.
+    """
+    monkeypatch.setattr(screenshotter, "_video_duration", lambda video_path: 200.0)
+    monkeypatch.setattr(
+        screenshotter,
+        "detect_scene_changes",
+        lambda video_path, **kw: [0.0, 0.4, 59.6, 60.2, 60.4, 119.7, 120.3],
+    )
+
+    calls = []
+    monkeypatch.setattr(screenshotter.subprocess, "run", _fake_run_writes_output(calls))
+
+    video_path = tmp_path / "video.mp4"
+    video_path.write_bytes(b"video")
+
+    shots = screenshotter.extract_screenshots(
+        video_path, tmp_path, "vid", sampling="scene", safety_interval=60,
+    )
+
+    keys = [s.timestamp_str for s in shots]
+    assert len(keys) == len(set(keys)), f"duplicate OCR keys: {keys}"
+    # And the frame files themselves stay distinct.
+    assert len({s.path for s in shots}) == len(shots)
