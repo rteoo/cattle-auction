@@ -32,6 +32,9 @@ def get_video_info(url: str, output_dir: Path, video_id: str) -> dict:
     result = {
         "title": info.get("title", ""),
         "description": (info.get("description") or "")[:2000],  # cap length
+        # Duration feeds the transcript coverage check and the run cost estimate.
+        # Cached files written before this field existed simply lack it.
+        "duration": info.get("duration"),
     }
     cache_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
     return result
