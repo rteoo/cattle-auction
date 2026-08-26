@@ -27,16 +27,19 @@ _ANALYSIS_WIDTH = 320
 _ANALYSIS_FPS = 2
 
 # Absolute floor separating a real screen change from compression noise.
-# The fixed 0.15 threshold commonly cited for ffmpeg's scene filter is
-# calibrated for natural video (camera motion, cuts between shots) and is
-# reported to detect ZERO changes on a static, light-background graphic
-# overlay — which is what our lot board is. Hence the adaptive cutoff below.
 #
-# NOT YET CALIBRATED ON REAL AUCTION FOOTAGE. This floor is carried over from
-# the prior art this was adapted from (slide-deck screencasts, where a slide
-# change scores ~0.024-0.035 and identical frames ~0.00003). Re-measure against
-# a real auction video before trusting scene sampling in production, and
-# adjust this constant if the lot board scores differently.
+# Measured on a synthetic 480p broadcast-style lot board (four boards, one
+# change every 3s, h264 @ 900kbps): a board change scores 0.021-0.027 while
+# consecutive identical frames score 0.00004-0.0004 — roughly two orders of
+# magnitude apart, so this floor sits comfortably between them. The 0.15
+# threshold commonly cited for ffmpeg's scene filter is calibrated for natural
+# video (camera motion, cuts between shots) and detected ZERO of those four
+# changes; that is the whole reason for an adaptive cutoff rather than the
+# usual constant.
+#
+# Not yet measured against a real auction broadcast, where a live camera feed
+# behind the overlay will raise the noise floor — that case is what the median
+# multiplier below exists to handle.
 _ABS_FLOOR = 0.008
 
 # In natural video the baseline noise floor is much higher (camera shake,

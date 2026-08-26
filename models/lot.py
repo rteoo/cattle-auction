@@ -72,3 +72,7 @@ class AuctionResult(BaseModel):
     notes: str | None = None       # Outras informações relevantes do evento
     total_lots: int
     lots: list[Lot]
+    # Estimated USD spent extracting this video (LLM tokens + cloud
+    # transcription). None when the run resumed entirely from checkpoints
+    # and therefore spent nothing.
+    cost_usd: float | None = None
