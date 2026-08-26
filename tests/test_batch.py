@@ -11,7 +11,8 @@ from main import _batch_success_item, _build_batch_report, _format_batch_markdow
 from models.lot import AuctionResult, Lot
 
 
-def _result(video_url, video_id, lots, *, date=None, city=None, auctioneer=None, farm=None, notes=None):
+def _result(video_url, video_id, lots, *, date=None, city=None, auctioneer=None,
+            farm=None, notes=None, cost_usd=None):
     return AuctionResult(
         video_url=video_url,
         video_id=video_id,
@@ -22,6 +23,7 @@ def _result(video_url, video_id, lots, *, date=None, city=None, auctioneer=None,
         notes=notes,
         total_lots=len(lots),
         lots=lots,
+        cost_usd=cost_usd,
     )
 
 
@@ -268,3 +270,74 @@ def test_batch_success_item_infers_missing_auction_metadata_from_farm_and_notes(
     markdown = _format_batch_markdown(report)
     assert "Clube dos Amigos Leilões" in markdown
     assert "Eliseu Vieira" in markdown
+
+
+def test_batch_report_sums_estimated_cost_across_videos(tmp_path):
+    items = [
+        _batch_success_item(1, _result("u1", "aaa", [_lot(1, "boi", 5, 4000.0)], cost_usd=0.0512), tmp_path),
+        _batch_success_item(2, _result("u2", "bbb", [_lot(2, "vaca", 3, 3000.0)], cost_usd=0.0130), tmp_path),
+    ]
+
+    assert [item["cost_usd"] for item in items] == [0.0512, 0.0130]
+
+    report = _build_batch_report("maio", items)
+    assert report["totals"]["cost_usd"] == 0.0642
+
+
+def test_batch_cost_total_tolerates_runs_that_reported_no_cost(tmp_path):
+    """A fully resumed run spends nothing and reports cost_usd=None."""
+    items = [
+        _batch_success_item(1, _result("u1", "aaa", [_lot(1, "boi", 5, 4000.0)], cost_usd=None), tmp_path),
+        _batch_success_item(2, _result("u2", "bbb", [_lot(2, "vaca", 3, 3000.0)], cost_usd=0.02), tmp_path),
+    ]
+
+    report = _build_batch_report("maio", items)
+    assert report["totals"]["cost_usd"] == 0.02
+
+
+def test_frame_sampling_flag_reaches_the_pipeline(monkeypatch, tmp_path):
+    captured = {}
+
+    def fake_run_single_url(url, **kwargs):
+        captured.update(kwargs)
+        return _result(url, "aaa", [_lot(1, "boi", 5, 4000.0)])
+
+    monkeypatch.setattr("main._run_single_url", fake_run_single_url)
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "https://www.youtube.com/watch?v=aaa",
+            "--frame-sampling", "scene",
+            "--safety-interval", "45",
+            "--output-dir", str(tmp_path),
+            "--no-summary", "--no-table", "--no-metadata",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["frame_sampling"] == "scene"
+    assert captured["safety_interval"] == 45
+
+
+def test_frame_sampling_defaults_to_interval(monkeypatch, tmp_path):
+    captured = {}
+
+    def fake_run_single_url(url, **kwargs):
+        captured.update(kwargs)
+        return _result(url, "aaa", [_lot(1, "boi", 5, 4000.0)])
+
+    monkeypatch.setattr("main._run_single_url", fake_run_single_url)
+
+    result = CliRunner().invoke(
+        cli,
+        [
+            "https://www.youtube.com/watch?v=aaa",
+            "--output-dir", str(tmp_path),
+            "--no-summary", "--no-table", "--no-metadata",
+        ],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert captured["frame_sampling"] == "interval"
+    assert captured["safety_interval"] == 60

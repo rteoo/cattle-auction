@@ -12,7 +12,7 @@ The pipeline:
 2. Extracts 16 kHz mono audio with `ffmpeg`.
 3. Transcribes PT-BR audio with Groq Whisper, MLX Whisper, or whisper.cpp.
 4. Downloads a low-resolution OCR video, 480p by default or 720p when requested.
-5. Extracts screenshots every N seconds.
+5. Extracts screenshots, either every N seconds or at detected lot-board changes.
 6. Runs OCR over screenshots with RapidOCR.
 7. Merges transcript and OCR into overlapping time windows.
 8. Sends each window to an LLM to extract lot records.
@@ -74,7 +74,9 @@ Important options:
 --transcriber mlx|cpp|groq         # default: groq
 --whisper-model medium             # used by mlx/cpp
 --cpp-model /path/to/ggml.bin      # optional whisper.cpp model path
---screenshot-interval 30           # seconds between frames
+--screenshot-interval 30           # seconds between frames (interval sampling)
+--frame-sampling interval|scene    # default: interval
+--safety-interval 60               # scene sampling: coarse grid unioned with detections
 --ocr-video-height 480             # OCR video height: 480 or 720
 --output-dir output
 --no-resume                        # clear stage checkpoints before running
@@ -113,6 +115,8 @@ uv run pytest tests/test_extractor.py -v
 uv run pytest tests/test_aggregator.py -v
 uv run pytest tests/test_summary.py -v
 uv run pytest tests/test_downloader.py -v
+uv run pytest tests/test_scenes.py tests/test_screenshotter.py -v
+uv run pytest tests/test_transcript_quality.py tests/test_costs.py -v
 uv run pytest tests/ -k test_br_ -v
 ```
 
@@ -129,6 +133,7 @@ Pipeline stages write resumable artifacts under `output/<video_id>/`.
 | OCR video | `video_ocr_<id>_480p.mp4`, `video_ocr_<id>_720p.mp4` when requested |
 | Transcribe | `transcript_<id>.json` |
 | Screenshots | `screenshots_<id>.json`, `screenshots_<id>/` |
+| Batch summary (cost) | `batches/<name>/batch_summary.json` → `totals.cost_usd` |
 | OCR | `ocr_results_<id>.json` |
 | Lot extraction | `lots_<id>.json` |
 | Metadata | `metadata_<id>.json` |
@@ -136,6 +141,21 @@ Pipeline stages write resumable artifacts under `output/<video_id>/`.
 | Batch summary | `batches/<batch_name>/batch_summary.json`, `batches/<batch_name>/comparison.md` |
 
 Do not delete or regenerate `output/` artifacts casually. Full runs can be slow and may incur API cost. Use `--no-resume` only when the task explicitly requires invalidating cached stage outputs.
+
+## Frame Sampling
+
+Two modes, selected with `--frame-sampling`:
+
+- `interval` (default) — one frame every `--screenshot-interval` seconds. Blind to content but predictable, and the mode every existing checkpoint was built with.
+- `scene` — frames where the lot board actually changed, unioned with a coarse `--safety-interval` grid so under-firing detection never loses coverage outright. Falls back to `interval` when detection returns nothing.
+
+`screenshots_<id>.json` records the sampling parameters it was produced with, so changing them invalidates the cache instead of silently returning stale frames. Caches written before this existed are bare JSON lists; those are trusted as-is and never invalidated.
+
+### Findings worth not re-litigating
+
+**Scene threshold must be adaptive.** The 0.15 scene-score threshold cited in most ffmpeg documentation is calibrated for natural video. Measured on a synthetic 480p broadcast-style lot board: a board change scores 0.021-0.027, consecutive identical frames score 0.00004-0.0004, and a fixed 0.15 detects **zero** changes. `pipeline/scenes.py` therefore cuts at `max(0.008, median * 8)`. End-to-end check: four distinct boards produced exactly four frames, each seeking to the correct board, all OCR'd correctly. Not yet measured against a real auction broadcast, where a live camera feed behind the overlay raises the noise floor - that is what the median multiplier handles.
+
+**PNG frames do not help OCR - do not add the flag back.** Prior art on slide-deck screencasts reported JPEG mangling on-screen text under tesseract. Tested against our stack (RapidOCR, 480p h264, broadcast-style board): PNG and JPEG `-q:v 2` produced character-identical output at every text size down to 9px, both making the *same* error at 9px (`3.450,00` read as `3.450.00`) - a resolution limit, not a compression one. PNG's only edge was +0.008 mean confidence at 1.7x the disk. If small-text fidelity ever becomes the problem, raise `--ocr-video-height` to 720; do not reach for PNG.
 
 ## Architecture Map
 
@@ -150,6 +170,9 @@ cattle-auction/
 │   ├── downloader.py         ← YouTube metadata/download + ffmpeg audio extraction
 │   ├── transcriber.py        ← Groq, MLX Whisper, and whisper.cpp backends
 │   ├── screenshotter.py      ← ffmpeg frame extraction with progress
+│   ├── scenes.py             ← lot-board change detection (adaptive threshold)
+│   ├── transcript_quality.py ← Whisper hallucination / sparse-coverage gate
+│   ├── costs.py              ← token + audio counters → USD estimate
 │   ├── ocr.py                ← RapidOCR screenshot text extraction
 │   ├── aggregator.py         ← transcript/OCR merge into overlapping windows
 │   └── extractor.py          ← LLM clients, JSON parsing, merge, sanity checks
@@ -163,7 +186,12 @@ cattle-auction/
     ├── test_aggregator.py    ← time windows and OCR/transcript merging
     ├── test_summary.py       ← summary statistics
     ├── test_batch.py         ← batch URL loading, sequential runs, reports
-    └── test_downloader.py    ← audio-only download and OCR video resolution
+    ├── test_downloader.py    ← audio-only download and OCR video resolution
+    ├── test_scenes.py        ← stderr parsing, adaptive threshold, gap collapsing
+    ├── test_screenshotter.py ← sampling modes, safety grid, checkpoint invalidation
+    ├── test_transcript_quality.py ← caption credits, repetition loops, coverage
+    ├── test_costs.py         ← price arithmetic and cost formatting
+    └── test_run_pipeline.py  ← stage wiring: gate applied, flags passed, cost billed
 ```
 
 ## Core Data Model
@@ -252,6 +280,9 @@ For routine implementation work, prefer unit tests over live pipeline runs.
 - Window sizing, overlap, timestamp formatting, or OCR/transcript merge behavior: update `pipeline/aggregator.py` and `tests/test_aggregator.py`.
 - CLI display, batch reports, or summary numbers: update `main.py`, `tests/test_summary.py`, and/or `tests/test_batch.py`.
 - Download, transcription, screenshots, or OCR runtime behavior: update the matching `pipeline/` module and add focused tests where practical. Downloader format and resolution changes belong in `pipeline/downloader.py` and `tests/test_downloader.py`.
+- Frame sampling strategy or scene-detection thresholds: `pipeline/scenes.py`, `pipeline/screenshotter.py`, and their tests.
+- Transcript hallucination heuristics: `pipeline/transcript_quality.py` and `tests/test_transcript_quality.py`.
+- Model pricing or cost display: `pipeline/costs.py` and `tests/test_costs.py`. Prices drift — verify against provider pages before trusting a number.
 
 ## PR Readiness
 

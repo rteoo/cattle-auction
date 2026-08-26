@@ -72,3 +72,7 @@ class AuctionResult(BaseModel):
     notes: str | None = None       # Outras informações relevantes do evento
     total_lots: int
     lots: list[Lot]
+    # Estimated USD spent by THIS run (LLM tokens + cloud transcription).
+    # Stages served from checkpoints contribute nothing, so a fully resumed
+    # run reports ~0. None only when the field predates this schema.
+    cost_usd: float | None = None

@@ -14,8 +14,9 @@ from rich.console import Console
 from rich.table import Table
 
 from models.lot import AuctionResult
-from pipeline import aggregator, downloader, extractor, ocr, screenshotter
+from pipeline import aggregator, costs, downloader, extractor, ocr, screenshotter
 from pipeline import transcriber as transcriber_mod
+from pipeline.transcript_quality import check_transcript
 
 console = Console()
 
@@ -89,6 +90,25 @@ PROMPTS_DIR = Path(__file__).parent / "prompts"
     help="Seconds between screenshots.",
 )
 @click.option(
+    "--frame-sampling",
+    type=click.Choice(["interval", "scene"]),
+    default="interval",
+    show_default=True,
+    help=(
+        "How to pick screenshots. 'interval' samples every --screenshot-interval "
+        "seconds. 'scene' samples where the lot board actually changes, unioned "
+        "with a coarse safety grid — usually fewer frames and closer to lot "
+        "boundaries, but not yet calibrated on real auction footage."
+    ),
+)
+@click.option(
+    "--safety-interval",
+    type=click.IntRange(min=1),
+    default=60,
+    show_default=True,
+    help="Seconds between safety-grid frames added on top of detected scene changes.",
+)
+@click.option(
     "--ocr-video-height",
     type=click.Choice(["480", "720"]),
     default="480",
@@ -130,6 +150,8 @@ def cli(
     whisper_model,
     cpp_model,
     screenshot_interval,
+    frame_sampling,
+    safety_interval,
     ocr_video_height,
     no_resume,
     show_metadata,
@@ -151,6 +173,8 @@ def cli(
             whisper_model=whisper_model,
             cpp_model=cpp_model,
             screenshot_interval=screenshot_interval,
+            frame_sampling=frame_sampling,
+            safety_interval=safety_interval,
             ocr_video_height=int(ocr_video_height),
             no_resume=no_resume,
             show_metadata=show_metadata,
@@ -173,6 +197,8 @@ def cli(
         whisper_model=whisper_model,
         cpp_model=cpp_model,
         screenshot_interval=screenshot_interval,
+        frame_sampling=frame_sampling,
+        safety_interval=safety_interval,
         ocr_video_height=int(ocr_video_height),
         no_resume=no_resume,
         show_metadata=show_metadata,
@@ -195,6 +221,8 @@ def _run_single_url(
     show_metadata,
     show_summary,
     show_table,
+    frame_sampling="interval",
+    safety_interval=60,
 ):
     model = extractor.default_model(provider)
 
@@ -223,13 +251,25 @@ def _run_single_url(
     # ── Stage 2: Transcribe ──────────────────────────────────────────────
     _stage("2/7", f"Transcribe audio ({transcriber})")
     t0 = time.time()
+    # Checked before the call: a transcript served from checkpoint costs
+    # nothing, so billing it again would overstate a resumed run's spend.
+    transcript_path = run_dir / f"transcript_{video_id}.json"
+    transcript_was_cached = transcript_path.exists()
     segments = transcriber_mod.transcribe(
         audio_path,
-        output_path=run_dir / f"transcript_{video_id}.json",
+        output_path=transcript_path,
         backend=transcriber,
         whisper_model=whisper_model,
         cpp_model_path=cpp_model,
     )
+    # Gate the transcript on the way out rather than on the way in: the
+    # checkpoint keeps Whisper's raw output, so tightening these heuristics
+    # later does not require re-transcribing anything.
+    audio_seconds = video_info.get("duration")
+    quality = check_transcript(segments, audio_duration=audio_seconds)
+    segments = quality.segments
+    if quality.status != "ok":
+        console.print(f"  [yellow]Transcript {quality.status}:[/yellow] {quality.warning}")
     _done(t0)
 
     # ── Stage 3: Download OCR video ──────────────────────────────────────
@@ -244,13 +284,18 @@ def _run_single_url(
     _done(t0)
 
     # ── Stage 4: Screenshots ─────────────────────────────────────────────
-    _stage("4/7", f"Extract screenshots (every {screenshot_interval}s)")
+    if frame_sampling == "scene":
+        _stage("4/7", f"Extract screenshots (scene changes + {safety_interval}s grid)")
+    else:
+        _stage("4/7", f"Extract screenshots (every {screenshot_interval}s)")
     t0 = time.time()
     shots = screenshotter.extract_screenshots(
         video_path,
         output_dir=run_dir,
         video_id=video_id,
         interval=screenshot_interval,
+        sampling=frame_sampling,
+        safety_interval=safety_interval,
     )
     _done(t0)
 
@@ -289,6 +334,14 @@ def _run_single_url(
     _done(t0)
 
     # ── Summary ───────────────────────────────────────────────────────────
+    run_cost = costs.estimate_cost(
+        model,
+        client.input_tokens,
+        client.output_tokens,
+        transcriber=transcriber,
+        audio_seconds=0.0 if transcript_was_cached else (audio_seconds or 0.0),
+    )
+
     result = AuctionResult(
         video_url=url,
         video_id=video_id,
@@ -300,6 +353,7 @@ def _run_single_url(
         notes=metadata.get("notes"),
         total_lots=len(lots),
         lots=lots,
+        cost_usd=run_cost["total_usd"],
     )
     summary_path = run_dir / f"result_{video_id}.json"
     summary_path.write_text(
@@ -320,6 +374,11 @@ def _run_single_url(
             console.print(f"  Obs:        {metadata.get('notes')}")
         console.print()
     console.print(f"  Found [bold]{len(lots)}[/bold] lots.")
+    console.print(
+        f"  Cost:   {costs.format_cost(run_cost['total_usd'])}"
+        f"  (LLM {costs.format_cost(run_cost['llm_usd'])}"
+        f"  |  transcription {costs.format_cost(run_cost['transcription_usd'])})"
+    )
     console.print(f"  Output: [cyan]{run_dir}/[/cyan]")
     console.print()
 
@@ -364,6 +423,8 @@ def _run_batch(
     show_table,
     batch_name,
     stop_on_error,
+    frame_sampling="interval",
+    safety_interval=60,
 ):
     output_root = Path(output_dir)
     report_dir = _batch_report_dir(output_root, batch_name)
@@ -388,6 +449,8 @@ def _run_batch(
                 whisper_model=whisper_model,
                 cpp_model=cpp_model,
                 screenshot_interval=screenshot_interval,
+                frame_sampling=frame_sampling,
+                safety_interval=safety_interval,
                 ocr_video_height=ocr_video_height,
                 no_resume=no_resume,
                 show_metadata=show_metadata,
@@ -437,6 +500,7 @@ def _batch_success_item(index: int, result: AuctionResult, output_root: Path) ->
         "sold": summary.get("sold", 0),
         "not_sold": summary.get("not_sold", 0),
         "avg_price": summary.get("avg_price", 0),
+        "cost_usd": result.cost_usd,
         "top_category": top_category,
         "category_animals": category_animals,
         "category_prices": summary.get("category_prices", {}),
@@ -518,6 +582,7 @@ def _build_batch_report(batch_name: str, items: list[dict]) -> dict:
             "animals": sum(item.get("total_animals", 0) for item in successes),
             "sold": sum(item.get("sold", 0) for item in successes),
             "not_sold": sum(item.get("not_sold", 0) for item in successes),
+            "cost_usd": round(sum(item.get("cost_usd") or 0.0 for item in successes), 6),
         },
         "comparison": comparison,
         "category_totals": category_totals,

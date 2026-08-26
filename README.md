@@ -5,14 +5,14 @@ Extracts structured lot data from Brazilian cattle auction YouTube videos.
 ## How it works
 
 1. **Download audio** — fetches audio only with `yt-dlp` and extracts a 16kHz mono audio track
-2. **Transcribe** — transcribes audio in PT-BR using MLX Whisper (local, Metal), whisper.cpp (local, Metal), or Groq API (cloud)
+2. **Transcribe** — transcribes audio in PT-BR using MLX Whisper (local, Metal), whisper.cpp (local, Metal), or Groq API (cloud), then gates the result for known Whisper hallucinations (caption-credit boilerplate, repeated-phrase loops, mostly-silent audio)
 3. **Download OCR video** — fetches a low-resolution video for screenshots, 480p by default or 720p when requested
-4. **Screenshots** — extracts one frame every 30 seconds with `ffmpeg`, with a live progress bar
+4. **Screenshots** — extracts frames with `ffmpeg`, with a live progress bar. By default one frame every 30 seconds; with `--frame-sampling scene` it instead captures the moments the lot board actually changes, plus a coarse safety grid
 5. **OCR** — reads text visible on screen using RapidOCR (ONNX-based, fast, no native deps), with a live progress bar
 6. **Aggregate** — merges transcript segments and OCR results into 10-minute windows
 7. **Extract lots** — sends each window to an LLM with a structured PT-BR prompt to pull out lot data (number, sex, category, count, breed, price, sold status)
 8. **Extract metadata** — scans the first windows to extract auction-level info: date, city, auctioneer, farm, auction type
-9. **Output** — saves `lots_<video_id>.json`, `metadata_<video_id>.json`, and prints a summary table
+9. **Output** — saves `lots_<video_id>.json`, `metadata_<video_id>.json`, and prints a summary table plus the run's estimated USD cost
 
 Each stage is checkpointed. Interrupted runs resume automatically from where they left off.
 
@@ -81,7 +81,9 @@ whisper-cpp-download-ggml-model medium
 | `--whisper-model` | `medium` | Model size for mlx/cpp: `tiny` / `base` / `small` / `medium` / `large-v3` |
 | `--cpp-model` | auto | Path to ggml model file (whisper.cpp only) |
 | `--provider` | `openrouter` | LLM provider: `openrouter` or `openai` |
-| `--screenshot-interval` | `30` | Seconds between captured frames |
+| `--screenshot-interval` | `30` | Seconds between captured frames (interval sampling) |
+| `--frame-sampling` | `interval` | `interval` samples on a fixed clock; `scene` samples where the lot board changes |
+| `--safety-interval` | `60` | Scene sampling only: seconds between safety-grid frames added on top of detections |
 | `--ocr-video-height` | `480` | Maximum video height for OCR screenshots: `480` or `720` |
 | `--output-dir` | `output` | Base directory for all generated files |
 | `--no-resume` | off | Ignore cached stages and rerun everything |
@@ -115,6 +117,9 @@ uv run python main.py "https://www.youtube.com/watch?v=..." --no-metadata --no-s
 
 # Use higher-resolution 720p video for OCR screenshots
 uv run python main.py "https://www.youtube.com/watch?v=..." --ocr-video-height 720
+
+# Sample frames where the lot board changes instead of on a fixed clock
+uv run python main.py "https://www.youtube.com/watch?v=..." --frame-sampling scene
 
 # Run a batch from a text file, one URL per line
 uv run python main.py --batch-file links.txt --batch-name maio-2026 --no-table
