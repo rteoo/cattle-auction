@@ -190,7 +190,8 @@ cattle-auction/
     ├── test_scenes.py        ← stderr parsing, adaptive threshold, gap collapsing
     ├── test_screenshotter.py ← sampling modes, safety grid, checkpoint invalidation
     ├── test_transcript_quality.py ← caption credits, repetition loops, coverage
-    └── test_costs.py         ← price arithmetic and cost formatting
+    ├── test_costs.py         ← price arithmetic and cost formatting
+    └── test_run_pipeline.py  ← stage wiring: gate applied, flags passed, cost billed
 ```
 
 ## Core Data Model

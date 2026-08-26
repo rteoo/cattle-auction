@@ -251,9 +251,13 @@ def _run_single_url(
     # ── Stage 2: Transcribe ──────────────────────────────────────────────
     _stage("2/7", f"Transcribe audio ({transcriber})")
     t0 = time.time()
+    # Checked before the call: a transcript served from checkpoint costs
+    # nothing, so billing it again would overstate a resumed run's spend.
+    transcript_path = run_dir / f"transcript_{video_id}.json"
+    transcript_was_cached = transcript_path.exists()
     segments = transcriber_mod.transcribe(
         audio_path,
-        output_path=run_dir / f"transcript_{video_id}.json",
+        output_path=transcript_path,
         backend=transcriber,
         whisper_model=whisper_model,
         cpp_model_path=cpp_model,
@@ -335,7 +339,7 @@ def _run_single_url(
         client.input_tokens,
         client.output_tokens,
         transcriber=transcriber,
-        audio_seconds=audio_seconds or 0.0,
+        audio_seconds=0.0 if transcript_was_cached else (audio_seconds or 0.0),
     )
 
     result = AuctionResult(
