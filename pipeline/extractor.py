@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import re
@@ -104,11 +105,23 @@ def extract_lots(
     against their source evidence — either confirming, correcting, or
     discarding the price.
     """
-    if output_path.exists():
-        print(f"  Lots already extracted, loading from cache.")
-        return _load(output_path)
-
     system_prompt = prompt_path.read_text(encoding="utf-8")
+    verify_prompt = (
+        verify_prompt_path.read_text(encoding="utf-8")
+        if verify_prompt_path is not None
+        else None
+    )
+    provenance = _stage_provenance(
+        "lots",
+        client,
+        system_prompt,
+        windows,
+        extra={"verify_prompt": verify_prompt},
+    )
+    cached = _load_cached_checkpoint(output_path, provenance, _load, "Lots")
+    if cached is not None:
+        return cached
+
     lots_by_number: dict[int, Lot] = {}
     total = len(windows)
 
@@ -192,8 +205,7 @@ def extract_lots(
     # the outlier by re-examining the transcript+OCR around that lot's
     # timestamp. This recovers legitimate high-priced touros that the
     # statistical filter would otherwise discard.
-    if verify_prompt_path and math.isfinite(hi):
-        verify_prompt = verify_prompt_path.read_text(encoding="utf-8")
+    if verify_prompt is not None and math.isfinite(hi):
         flagged = [
             (num, lot) for num, lot in lots_by_number.items()
             if lot.unit_price is not None and (lot.unit_price < lo or lot.unit_price > hi)
@@ -243,7 +255,7 @@ def extract_lots(
     # `_sanity_check(lot, bounds=bounds)`, undoing the verification. So for
     # lots that survived verification, skip the bounds check — they're trusted.
     confirmed_lot_numbers = set()
-    if verify_prompt_path:
+    if verify_prompt is not None:
         confirmed_lot_numbers = {
             num for num, lot in lots_by_number.items()
             if lot.unit_price is not None and (lot.unit_price < lo or lot.unit_price > hi)
@@ -260,6 +272,7 @@ def extract_lots(
 
     lots = sorted(lots_by_number.values(), key=lambda l: l.lot_number)
     _save(lots, output_path)
+    _save_checkpoint_provenance(provenance, _checkpoint_meta_path(output_path))
     return lots
 
 
@@ -553,6 +566,92 @@ def _save(lots: list[Lot], path: Path) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def _checkpoint_meta_path(path: Path) -> Path:
+    return path.with_suffix(".meta.json")
+
+
+def _stage_provenance(
+    stage: str,
+    client,
+    prompt: str,
+    windows: list[Window],
+    *,
+    extra: dict | None = None,
+) -> dict:
+    payload = {
+        "stage": stage,
+        "client": {
+            "provider": getattr(client, "provider", type(client).__name__),
+            "model": getattr(client, "model", None),
+        },
+        "prompt": prompt,
+        "windows": [
+            {
+                "window_start": window.window_start,
+                "window_end": window.window_end,
+                "label": window.label,
+                "combined_text": window.combined_text,
+            }
+            for window in windows
+        ],
+        "extra": extra or {},
+    }
+    encoded = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    ).encode("utf-8")
+    return {
+        "version": 1,
+        "stage": stage,
+        "sha256": hashlib.sha256(encoded).hexdigest(),
+    }
+
+
+def _load_cached_checkpoint(path: Path, provenance: dict, loader, label: str):
+    try:
+        has_checkpoint = path.is_file() and path.stat().st_size > 0
+    except OSError:
+        has_checkpoint = False
+    if not has_checkpoint:
+        return None
+
+    metadata_path = _checkpoint_meta_path(path)
+    if not metadata_path.exists():
+        try:
+            value = loader(path)
+        except (OSError, ValueError):
+            return None
+        if value is None:
+            return None
+        print(f"  {label} checkpoint has no provenance; adopting legacy cache.")
+        _save_checkpoint_provenance(provenance, metadata_path)
+        return value
+
+    try:
+        cached_provenance = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        cached_provenance = None
+    if cached_provenance == provenance:
+        print(f"  {label} already extracted, loading from cache.")
+        try:
+            return loader(path)
+        except (OSError, ValueError):
+            return None
+
+    print(f"  {label} provenance changed, re-extracting.")
+    return None
+
+
+def _save_checkpoint_provenance(provenance: dict, path: Path) -> None:
+    path.write_text(
+        json.dumps(provenance, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
 def _load(path: Path) -> list[Lot]:
     data = json.loads(path.read_text(encoding="utf-8"))
     return [Lot(**d) for d in data]
@@ -566,10 +665,6 @@ def extract_metadata(
     video_info: dict | None = None,
 ) -> dict:
     """Extract auction-level metadata (date, city, auctioneer, etc.) from the first windows."""
-    if output_path.exists():
-        print(f"  Auction metadata already extracted, loading from cache.")
-        return json.loads(output_path.read_text(encoding="utf-8"))
-
     system_prompt = prompt_path.read_text(encoding="utf-8")
 
     # Prepend video title/description as the most reliable source for city and event name
@@ -587,6 +682,21 @@ def extract_metadata(
     combined = header + "\n\n".join(
         f"[{w.label}]\n{w.combined_text}" for w in windows[:_METADATA_WINDOWS]
     )
+    provenance = _stage_provenance(
+        "metadata",
+        client,
+        system_prompt,
+        windows[:_METADATA_WINDOWS],
+        extra={"video_info": video_info or {}},
+    )
+    cached = _load_cached_checkpoint(
+        output_path,
+        provenance,
+        _load_metadata_checkpoint,
+        "Auction metadata",
+    )
+    if cached is not None:
+        return cached
 
     try:
         response = client.complete(system_prompt, combined)
@@ -602,7 +712,13 @@ def extract_metadata(
         metadata = {}
 
     output_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
+    _save_checkpoint_provenance(provenance, _checkpoint_meta_path(output_path))
     return metadata
+
+
+def _load_metadata_checkpoint(path: Path) -> dict | None:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    return value if isinstance(value, dict) else None
 
 
 def default_model(provider: str) -> str:

@@ -47,11 +47,21 @@ def extract_screenshots(
     """
     screenshots_dir = output_dir / f"screenshots_{video_id}"
     index_path = output_dir / f"screenshots_{video_id}.json"
+    source_key = _source_key(video_path)
 
     cached = _load(index_path)
     if cached is not None:
         cached_screenshots, cached_params = cached
-        if _params_match(cached_params, sampling, interval, safety_interval):
+        if (
+            _params_match(
+                cached_params,
+                sampling,
+                interval,
+                safety_interval,
+                source_key=source_key,
+            )
+            and _cached_frames_usable(cached_screenshots, legacy=cached_params.get("legacy", False))
+        ):
             print("  Screenshots already extracted, loading from cache.")
             return cached_screenshots
         print(
@@ -79,7 +89,14 @@ def extract_screenshots(
         screenshots = _extract_interval(video_path, screenshots_dir, interval)
 
     print(f"  Extracted {len(screenshots)} screenshots.")
-    _save(screenshots, index_path, sampling=sampling, interval=interval, safety_interval=safety_interval)
+    _save(
+        screenshots,
+        index_path,
+        sampling=sampling,
+        interval=interval,
+        safety_interval=safety_interval,
+        source_key=source_key,
+    )
     return screenshots
 
 
@@ -288,11 +305,13 @@ def _save(
     sampling: str,
     interval: int,
     safety_interval: int,
+    source_key: dict,
 ) -> None:
     data = {
         "sampling": sampling,
         "interval": interval,
         "safety_interval": safety_interval,
+        "source_key": source_key,
         "screenshots": [
             {"seconds": s.seconds, "timestamp_str": s.timestamp_str, "path": str(s.path)}
             for s in screenshots
@@ -329,6 +348,7 @@ def _load(path: Path) -> tuple[list[Screenshot], dict] | None:
         "sampling": raw.get("sampling"),
         "interval": raw.get("interval"),
         "safety_interval": raw.get("safety_interval"),
+        "source_key": raw.get("source_key"),
     }
     return screenshots, params
 
@@ -338,10 +358,15 @@ def _params_match(
     sampling: str,
     interval: int,
     safety_interval: int,
+    *,
+    source_key=None,
 ) -> bool:
     if cached_params.get("legacy"):
         return True
     if cached_params.get("sampling") != sampling:
+        return False
+    cached_source_key = cached_params.get("source_key")
+    if cached_source_key != source_key:
         return False
     # Compare only the knobs that shape this mode's output: scene sampling
     # ignores `interval`, interval sampling ignores the safety grid. Otherwise
@@ -349,6 +374,29 @@ def _params_match(
     if sampling == "scene":
         return cached_params.get("safety_interval") == safety_interval
     return cached_params.get("interval") == interval
+
+
+def _source_key(video_path: Path) -> dict:
+    """Return a stable identity for the media source behind the frames."""
+    identity = {"path": str(video_path.resolve())}
+    try:
+        stat = video_path.stat()
+    except OSError:
+        identity.update({"size": None, "mtime_ns": None})
+    else:
+        identity.update({"size": stat.st_size, "mtime_ns": stat.st_mtime_ns})
+    return identity
+
+
+def _cached_frames_usable(screenshots: list[Screenshot], *, legacy: bool) -> bool:
+    # Legacy bare-list indexes are intentionally trusted. Modern indexes fail
+    # closed when a referenced frame is missing or empty.
+    if legacy:
+        return True
+    return all(
+        shot.path.is_file() and shot.path.stat().st_size > 0
+        for shot in screenshots
+    )
 
 
 def _clear_frames(screenshots_dir: Path) -> None:
