@@ -119,7 +119,7 @@ PROMPTS_DIR = Path(__file__).parent / "prompts"
     "--no-resume",
     is_flag=True,
     default=False,
-    help="Ignore cached stage outputs and rerun everything.",
+    help="Recompute derived checkpoints; downloaded source media is preserved.",
 )
 @click.option(
     "--metadata/--no-metadata",
