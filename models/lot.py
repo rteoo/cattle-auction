@@ -28,10 +28,27 @@ def coerce_price_value(v):
     if v is None:
         return None
     if isinstance(v, str):
-        v = v.replace("R$", "").replace(".", "").replace(",", ".").strip()
-        if not v:
+        text = v.replace("R$", "").strip()
+        if not text:
             return None
-        f = float(v)
+        if "," in text:
+            # A comma is unambiguously the Brazilian decimal separator; dots
+            # in the same value are thousands separators.
+            normalized = text.replace(".", "").replace(",", ".")
+        elif text.count(".") == 1:
+            whole, fraction = text.split(".")
+            # Short values with exactly three trailing digits are the common
+            # BR thousands form ("3.100" -> 3100). Longer integer parts and
+            # any other fraction width are ordinary decimal-point strings.
+            normalized = whole + fraction if len(whole) <= 3 and len(fraction) == 3 else text
+        elif text.count(".") > 1:
+            groups = text.split(".")
+            if not all(len(group) == 3 for group in groups[1:]):
+                raise ValueError("invalid price format")
+            normalized = "".join(groups)
+        else:
+            normalized = text
+        f = float(normalized)
     else:
         f = float(v)
     if not math.isfinite(f):
