@@ -1,3 +1,5 @@
+import math
+
 from pydantic import BaseModel, field_validator
 
 
@@ -49,6 +51,8 @@ def coerce_price_value(v):
         f = float(normalized)
     else:
         f = float(v)
+    if not math.isfinite(f):
+        raise ValueError("price must be finite")
     if 0 < f < 100:
         f = f * 1000
     return f

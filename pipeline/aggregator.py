@@ -26,8 +26,18 @@ def aggregate(
     Merge transcript segments and OCR results into time windows for LLM processing.
     Windows overlap by `overlap` seconds so lots that span a boundary aren't split.
     """
+    if window_size <= 0 or overlap < 0 or overlap >= window_size:
+        raise ValueError(
+            "window_size must be positive and greater than a non-negative overlap"
+        )
+
     if not segments and not ocr_results:
         return []
+
+    # Transcriber backends normally return chronological segments, but cached
+    # or externally supplied transcripts are not guaranteed to preserve that
+    # order. The early-break optimization below is correct only after sorting.
+    segments = sorted(segments, key=lambda segment: (segment.start, segment.end))
 
     transcript_duration = max((seg.end for seg in segments), default=0)
     ocr_duration = max((_parse_ts(ts) for ts in ocr_results), default=0)

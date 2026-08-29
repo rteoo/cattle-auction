@@ -75,6 +75,12 @@ class TestCoercePrice:
         lot = self._lot(total_price="15.000,00")
         assert lot.total_price == 15000.0
 
+    @pytest.mark.parametrize("field", ["unit_price", "total_price"])
+    @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf"), "NaN", "Infinity", "-Infinity"])
+    def test_non_finite_prices_are_rejected(self, field, value):
+        with pytest.raises(ValidationError):
+            self._lot(**{field: value})
+
     def test_both_prices_coerced(self):
         lot = self._lot(unit_price="3.100,00", total_price="15.500,00")
         assert lot.unit_price == 3100.0

@@ -11,6 +11,7 @@ from pipeline.extractor import (
     _verify_lot,
     _parse_hhmmss,
     extract_lots,
+    extract_metadata,
 )
 from pipeline.aggregator import Window
 
@@ -71,8 +72,14 @@ class TestParseResponse:
         lots = _parse_response("Sure!\n" + self.VALID + "\nHope that helps.")
         assert len(lots) == 1
 
-    def test_invalid_json_returns_empty(self):
-        assert _parse_response("not json at all") == []
+    def test_bracketed_preamble_does_not_hide_valid_array(self):
+        """A bracketed note before the payload must not make extraction empty."""
+        lots = _parse_response("Summary [done].\n" + self.VALID)
+        assert [lot.lot_number for lot in lots] == [1]
+
+    def test_invalid_json_raises_parse_failure(self):
+        with pytest.raises(ValueError, match="JSON array"):
+            _parse_response("not json at all")
 
     def test_multiple_lots(self):
         raw = (
@@ -198,6 +205,13 @@ class TestMerge:
         _merge(store, first)
         second = _make_lot(lot_number=1, sold=True)
         _merge(store, second)
+        assert store[1].sold is True
+
+    def test_sold_true_remains_final_when_later_window_says_false(self):
+        """A later contradictory window must not undo a completed sale."""
+        store = {}
+        _merge(store, _make_lot(lot_number=1, sold=True))
+        _merge(store, _make_lot(lot_number=1, sold=False))
         assert store[1].sold is True
 
 
@@ -545,6 +559,18 @@ class TestVerifyLot:
         verdict = _verify_lot(_flagged_lot(), [_make_window()], client, "test prompt")
         assert verdict is None
 
+    def test_malformed_timestamp_returns_none(self):
+        """Malformed model output must not abort outlier verification."""
+        lot = _flagged_lot(timestamp_start="not-a-time")
+        client = _MockClient('{"confirmed": true}')
+        assert _verify_lot(lot, [_make_window()], client, "test prompt") is None
+        assert client.calls == []
+
+    def test_string_false_is_not_treated_as_confirmed(self):
+        """Only a JSON boolean true may confirm an outlier."""
+        client = _MockClient('{"confirmed": "false", "correct_unit_price": null}')
+        assert _verify_lot(_flagged_lot(), [_make_window()], client, "test prompt") == "discard"
+
     def test_missing_timestamp_returns_none(self):
         """Can't locate the evidence without timestamp_start."""
         lot = _flagged_lot(timestamp_start=None)
@@ -605,3 +631,91 @@ class TestExtractLotsBurstGuard:
         )
 
         assert [lot.lot_number for lot in lots] == list(range(1, 14))
+
+
+class _FailingAfterFirstClient:
+    def __init__(self, response: str):
+        self.response = response
+        self.calls = 0
+
+    def complete(self, system: str, user: str, max_retries: int = 3) -> str:
+        self.calls += 1
+        if self.calls > 1:
+            raise RuntimeError("simulated partial extraction failure")
+        return self.response
+
+
+class TestExtractLotsCheckpoint:
+    def test_partial_window_failure_does_not_write_final_checkpoint(self, tmp_path):
+        prompt_path = tmp_path / "prompt.txt"
+        prompt_path.write_text("extract", encoding="utf-8")
+        output_path = tmp_path / "lots.json"
+        response = __import__("json").dumps([{
+            "lot_number": 1,
+            "sex": "macho",
+            "category": "bezerro",
+            "num_animals": 1,
+            "breed": "Nelore",
+        }])
+        client = _FailingAfterFirstClient(response)
+
+        with pytest.raises(RuntimeError, match="incomplete"):
+            extract_lots(
+                [_make_window(0, 600), _make_window(540, 1140)],
+                client=client,
+                prompt_path=prompt_path,
+                output_path=output_path,
+            )
+
+        assert not output_path.exists()
+
+    def test_malformed_window_response_does_not_write_final_checkpoint(self, tmp_path):
+        prompt_path = tmp_path / "prompt.txt"
+        prompt_path.write_text("extract", encoding="utf-8")
+        output_path = tmp_path / "lots.json"
+        client = _MockClient("not json at all")
+
+        with pytest.raises(RuntimeError, match="incomplete"):
+            extract_lots(
+                [_make_window()],
+                client=client,
+                prompt_path=prompt_path,
+                output_path=output_path,
+            )
+
+        assert not output_path.exists()
+
+
+class TestExtractMetadata:
+    def test_non_object_response_is_replaced_with_empty_object(self, tmp_path):
+        prompt = tmp_path / "prompt.txt"
+        prompt.write_text("metadata prompt", encoding="utf-8")
+        output = tmp_path / "metadata.json"
+        client = _MockClient("[]")
+
+        metadata = extract_metadata([], client, prompt, output)
+
+        assert metadata == {}
+        assert not output.exists()
+
+    def test_llm_failure_does_not_write_empty_metadata_checkpoint(self, tmp_path):
+        prompt = tmp_path / "prompt.txt"
+        prompt.write_text("metadata prompt", encoding="utf-8")
+        output = tmp_path / "metadata.json"
+
+        class _FailingClient:
+            def complete(self, *args, **kwargs):
+                raise RuntimeError("temporary provider failure")
+
+        assert extract_metadata([], _FailingClient(), prompt, output) == {}
+        assert not output.exists()
+
+    def test_braced_preamble_does_not_hide_valid_object(self, tmp_path):
+        prompt = tmp_path / "prompt.txt"
+        prompt.write_text("metadata prompt", encoding="utf-8")
+        output = tmp_path / "metadata.json"
+        client = _MockClient('Example {not JSON}\n{"city": "Uberaba"}')
+
+        metadata = extract_metadata([], client, prompt, output)
+
+        assert metadata == {"city": "Uberaba"}

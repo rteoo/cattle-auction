@@ -1,13 +1,14 @@
 """
 Transcription backends:
 
-  mlx   — mlx-whisper on Apple Silicon via Metal (default, requires: uv sync --extra local)
+  mlx   — mlx-whisper on Apple Silicon via Metal (requires: uv sync --extra local)
   cpp   — whisper.cpp via the whisper-cli binary (requires: brew install whisper-cpp)
   groq  — Groq cloud API, Whisper Large v3 Turbo ($0.04/hr, ~$0.20 for 5h video)
             Requires: GROQ_API_KEY env var. Audio is split into <20 MB chunks automatically.
 """
 
 import json
+import math
 import os
 import subprocess
 import tempfile
@@ -38,7 +39,7 @@ class Segment:
 def transcribe(
     audio_path: Path,
     output_path: Path,
-    backend: str = "mlx",
+    backend: str = "groq",
     whisper_model: str = "medium",
     cpp_model_path: Path | None = None,
 ) -> list[Segment]:
@@ -211,7 +212,7 @@ def _transcribe_groq(audio_path: Path) -> list[Segment]:
 
     # Convert to MP3 at 32kbps to keep file sizes small
     mp3_path = audio_path.with_suffix(".mp3")
-    if not mp3_path.exists():
+    if not _is_fresh_nonempty_file(mp3_path, audio_path):
         print("  Converting audio to MP3 for Groq upload...")
         subprocess.run(
             [
@@ -235,7 +236,7 @@ def _transcribe_groq(audio_path: Path) -> list[Segment]:
     # File is too large — split into chunks
     duration = _audio_duration(mp3_path)
     chunk_secs = _CHUNK_MINUTES * 60
-    total_chunks = -(-int(duration) // chunk_secs)  # ceiling div
+    total_chunks = math.ceil(duration / chunk_secs)
 
     all_segments: list[Segment] = []
 
@@ -253,13 +254,15 @@ def _transcribe_groq(audio_path: Path) -> list[Segment]:
             info="",
         )
 
-        for idx, offset in enumerate(range(0, int(duration), chunk_secs), 1):
-            chunk_path = audio_path.parent / f"chunk_{idx:03d}.mp3"
-            if not chunk_path.exists():
+        for idx in range(total_chunks):
+            offset = idx * chunk_secs
+            chunk_path = audio_path.parent / f"chunk_{idx + 1:03d}.mp3"
+            if not _is_fresh_nonempty_file(chunk_path, mp3_path):
+                chunk_duration = min(chunk_secs, duration - offset)
                 subprocess.run(
                     [
                         "ffmpeg", "-i", str(mp3_path),
-                        "-ss", str(offset), "-t", str(chunk_secs),
+                        "-ss", str(offset), "-t", str(chunk_duration),
                         "-codec:a", "copy",
                         str(chunk_path), "-y", "-hide_banner", "-loglevel", "error",
                     ],
@@ -313,6 +316,15 @@ def _audio_duration(path: Path) -> float:
 def _save(segments: list[Segment], path: Path) -> None:
     data = [{"start": s.start, "end": s.end, "text": s.text} for s in segments]
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _is_fresh_nonempty_file(path: Path, source: Path) -> bool:
+    try:
+        path_stat = path.stat()
+        source_stat = source.stat()
+    except OSError:
+        return False
+    return path.is_file() and path_stat.st_size > 0 and path_stat.st_mtime_ns >= source_stat.st_mtime_ns
 
 
 def _load(path: Path) -> list[Segment]:

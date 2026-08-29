@@ -127,7 +127,9 @@ def test_batch_file_runs_urls_in_sequence_and_saves_report(monkeypatch, tmp_path
     assert report["items"][0]["auctioneer_display"] == "Leilões A"
     assert report["items"][0]["category_prices"] == {"bezerro": 3000.0}
     assert "Batch Summary" in result.output
-    assert "maio/batch_summary.json" in result.output
+    # Rich may wrap a long native path across lines; removing those soft wraps
+    # must reconstruct the exact report path on every platform.
+    assert str(report_path) in result.output.replace("\n", "")
 
     markdown = (tmp_path / "output" / "batches" / "maio" / "comparison.md").read_text(encoding="utf-8")
     assert "| Status | Video | Data | Cidade | Leilão | Leiloeiro | Lots | Animals | Avg price |" in markdown
@@ -270,6 +272,35 @@ def test_batch_success_item_infers_missing_auction_metadata_from_farm_and_notes(
     markdown = _format_batch_markdown(report)
     assert "Clube dos Amigos Leilões" in markdown
     assert "Eliseu Vieira" in markdown
+
+
+def test_batch_markdown_escapes_dynamic_table_cells_and_headers(tmp_path):
+    result = _result(
+        "https://www.youtube.com/watch?v=abc|def\nnext",
+        "abc|def",
+        [_lot(1, "bezerro | nelore\ncruzado", 2, 3000.0)],
+        city="Campo | Grande\nMS",
+        auctioneer="Leilões | A\nB",
+    )
+    report = _build_batch_report("special", [_batch_success_item(1, result, tmp_path)])
+
+    markdown = _format_batch_markdown(report)
+
+    assert "Campo \\| Grande<br>MS" in markdown
+    assert "Leilões \\| A<br>B" in markdown
+    assert "bezerro \\| nelore<br>cruzado" in markdown
+    assert "| abc\\|def |" in markdown
+
+
+def test_batch_markdown_escapes_failed_url_cells():
+    report = _build_batch_report(
+        "mixed",
+        [{"index": 1, "status": "failed", "url": "https://example.test/a|b\nnext", "error": "failed"}],
+    )
+
+    markdown = _format_batch_markdown(report)
+
+    assert "https://example.test/a\\|b<br>next" in markdown
 
 
 def test_batch_report_sums_estimated_cost_across_videos(tmp_path):
