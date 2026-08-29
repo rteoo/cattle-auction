@@ -266,6 +266,10 @@ def _run_single_url(
     # checkpoint keeps Whisper's raw output, so tightening these heuristics
     # later does not require re-transcribing anything.
     audio_seconds = video_info.get("duration")
+    if transcriber == "groq" and not transcript_was_cached and audio_seconds is None:
+        # Legacy video-info checkpoints predate the duration field. Derive it
+        # locally so a fresh Groq transcription is billed accurately.
+        audio_seconds = transcriber_mod._audio_duration(audio_path)
     quality = check_transcript(segments, audio_duration=audio_seconds)
     segments = quality.segments
     if quality.status != "ok":
