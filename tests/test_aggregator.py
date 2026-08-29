@@ -142,3 +142,27 @@ class TestAggregate:
         windows = aggregate(segments, {})
         # window 1: 0–600, window 2: 540–1140, window 3: 1080–1680
         assert len(windows) == 3
+
+    def test_unsorted_transcript_segments_are_not_dropped(self):
+        segments = [
+            seg(700, 710, "late"),
+            seg(0, 10, "early"),
+        ]
+
+        windows = aggregate(segments, {})
+
+        assert "early" in windows[0].combined_text
+        assert "late" not in windows[0].combined_text
+
+    @pytest.mark.parametrize(
+        ("window_size", "overlap"),
+        [
+            (0, 0),
+            (600, -1),
+            (600, 600),
+            (600, 601),
+        ],
+    )
+    def test_invalid_window_geometry_is_rejected(self, window_size, overlap):
+        with pytest.raises(ValueError, match="window_size"):
+            aggregate([seg(0, 10, "speech")], {}, window_size, overlap)
