@@ -8,6 +8,7 @@ Transcription backends:
 """
 
 import json
+import math
 import os
 import subprocess
 import tempfile
@@ -38,7 +39,7 @@ class Segment:
 def transcribe(
     audio_path: Path,
     output_path: Path,
-    backend: str = "mlx",
+    backend: str = "groq",
     whisper_model: str = "medium",
     cpp_model_path: Path | None = None,
 ) -> list[Segment]:
@@ -235,7 +236,7 @@ def _transcribe_groq(audio_path: Path) -> list[Segment]:
     # File is too large — split into chunks
     duration = _audio_duration(mp3_path)
     chunk_secs = _CHUNK_MINUTES * 60
-    total_chunks = -(-int(duration) // chunk_secs)  # ceiling div
+    total_chunks = math.ceil(duration / chunk_secs)
 
     all_segments: list[Segment] = []
 
@@ -253,13 +254,15 @@ def _transcribe_groq(audio_path: Path) -> list[Segment]:
             info="",
         )
 
-        for idx, offset in enumerate(range(0, int(duration), chunk_secs), 1):
-            chunk_path = audio_path.parent / f"chunk_{idx:03d}.mp3"
+        for idx in range(total_chunks):
+            offset = idx * chunk_secs
+            chunk_path = audio_path.parent / f"chunk_{idx + 1:03d}.mp3"
             if not chunk_path.exists():
+                chunk_duration = min(chunk_secs, duration - offset)
                 subprocess.run(
                     [
                         "ffmpeg", "-i", str(mp3_path),
-                        "-ss", str(offset), "-t", str(chunk_secs),
+                        "-ss", str(offset), "-t", str(chunk_duration),
                         "-codec:a", "copy",
                         str(chunk_path), "-y", "-hide_banner", "-loglevel", "error",
                     ],
