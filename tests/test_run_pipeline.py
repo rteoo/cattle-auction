@@ -158,4 +158,3 @@ def test_stale_transcript_provenance_is_billed_as_a_fresh_groq_run(monkeypatch, 
     result = _run(tmp_path)
 
     assert result.cost_usd == round(0.04 + 0.40 + 0.80, 6)
-
