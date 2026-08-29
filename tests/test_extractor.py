@@ -480,6 +480,22 @@ class _SequenceClient:
         return self.responses.pop(0)
 
 
+class _ProvenanceClient:
+    provider = "test-provider"
+    model = "test-model"
+
+    def __init__(self, response: str, *, fail_on_call: bool = False):
+        self.response = response
+        self.fail_on_call = fail_on_call
+        self.calls = 0
+
+    def complete(self, *args, **kwargs):
+        self.calls += 1
+        if self.fail_on_call:
+            raise AssertionError("matching checkpoint should avoid the LLM")
+        return self.response
+
+
 def _make_window(start: int = 0, end: int = 600, text: str = "dummy evidence") -> Window:
     return Window(window_start=start, window_end=end,
                   label=f"{start//3600:02d}:{(start%3600)//60:02d}:{start%60:02d} - …",
@@ -637,6 +653,8 @@ class _FailingAfterFirstClient:
     def __init__(self, response: str):
         self.response = response
         self.calls = 0
+        self.input_tokens = 0
+        self.output_tokens = 0
 
     def complete(self, system: str, user: str, max_retries: int = 3) -> str:
         self.calls += 1
@@ -685,6 +703,62 @@ class TestExtractLotsCheckpoint:
 
         assert not output_path.exists()
 
+    def test_window_change_invalidates_lot_checkpoint(self, tmp_path):
+        prompt_path = tmp_path / "prompt.txt"
+        prompt_path.write_text("extract", encoding="utf-8")
+        output_path = tmp_path / "lots.json"
+        first_response = __import__("json").dumps([{
+            "lot_number": 1,
+            "sex": "macho",
+            "category": "bezerro",
+            "num_animals": 1,
+            "breed": "Nelore",
+        }])
+        second_response = first_response.replace('"lot_number": 1', '"lot_number": 2')
+
+        first = _ProvenanceClient(first_response)
+        assert [lot.lot_number for lot in extract_lots(
+            [_make_window(text="first evidence")],
+            first,
+            prompt_path,
+            output_path,
+        )] == [1]
+
+        cached = _ProvenanceClient(first_response, fail_on_call=True)
+        assert [lot.lot_number for lot in extract_lots(
+            [_make_window(text="first evidence")],
+            cached,
+            prompt_path,
+            output_path,
+        )] == [1]
+        assert cached.calls == 0
+
+        changed = _ProvenanceClient(second_response)
+        assert [lot.lot_number for lot in extract_lots(
+            [_make_window(text="changed evidence")],
+            changed,
+            prompt_path,
+            output_path,
+        )] == [2]
+        assert changed.calls == 1
+
+    def test_legacy_lot_checkpoint_is_adopted_once(self, tmp_path):
+        prompt_path = tmp_path / "prompt.txt"
+        prompt_path.write_text("extract", encoding="utf-8")
+        output_path = tmp_path / "lots.json"
+        output_path.write_text(
+            '[{"lot_number":1,"sex":"macho","category":"boi",'
+            '"num_animals":1,"breed":"Nelore"}]',
+            encoding="utf-8",
+        )
+        client = _ProvenanceClient("[]", fail_on_call=True)
+
+        lots = extract_lots([_make_window()], client, prompt_path, output_path)
+
+        assert [lot.lot_number for lot in lots] == [1]
+        assert client.calls == 0
+        assert output_path.with_suffix(".meta.json").exists()
+
 
 class TestExtractMetadata:
     def test_non_object_response_is_replaced_with_empty_object(self, tmp_path):
@@ -719,3 +793,18 @@ class TestExtractMetadata:
         metadata = extract_metadata([], client, prompt, output)
 
         assert metadata == {"city": "Uberaba"}
+
+    def test_video_info_change_invalidates_metadata_checkpoint(self, tmp_path):
+        prompt = tmp_path / "prompt.txt"
+        prompt.write_text("metadata prompt", encoding="utf-8")
+        output = tmp_path / "metadata.json"
+        first = _ProvenanceClient('{"city": "Uberaba"}')
+        assert extract_metadata([], first, prompt, output, {"title": "First"}) == {
+            "city": "Uberaba"
+        }
+
+        changed = _ProvenanceClient('{"city": "Goiânia"}')
+        assert extract_metadata([], changed, prompt, output, {"title": "Changed"}) == {
+            "city": "Goiânia"
+        }
+        assert changed.calls == 1

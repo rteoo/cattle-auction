@@ -184,6 +184,7 @@ def test_scene_cache_survives_an_unrelated_interval_change(monkeypatch, tmp_path
                 "sampling": "scene",
                 "interval": 30,
                 "safety_interval": 60,
+                "source_key": screenshotter._source_key(tmp_path / "video.mp4"),
                 "screenshots": [{"seconds": 0, "timestamp_str": "00:00:00", "path": str(frame)}],
             }
         ),
@@ -263,6 +264,7 @@ def test_param_mismatch_invalidates_cache_and_reextracts(monkeypatch, tmp_path, 
                 "sampling": "interval",
                 "interval": 30,
                 "safety_interval": 60,
+                "source_key": screenshotter._source_key(tmp_path / "video.mp4"),
                 "screenshots": [
                     {"seconds": 0, "timestamp_str": "00:00:00", "path": str(stale_frame_1)},
                     {"seconds": 30, "timestamp_str": "00:00:30", "path": str(stale_frame_2)},
@@ -306,6 +308,7 @@ def test_matching_params_uses_cache_without_reextracting(monkeypatch, tmp_path):
                 "sampling": "interval",
                 "interval": 30,
                 "safety_interval": 60,
+                "source_key": screenshotter._source_key(tmp_path / "video.mp4"),
                 "screenshots": [{"seconds": 0, "timestamp_str": "00:00:00", "path": str(frame)}],
             }
         ),
@@ -323,6 +326,38 @@ def test_matching_params_uses_cache_without_reextracting(monkeypatch, tmp_path):
 
     assert [s.seconds for s in shots] == [0]
     assert frame.exists()
+
+
+def test_modern_cache_with_missing_frame_is_reextracted(monkeypatch, tmp_path):
+    video_path = tmp_path / "video.mp4"
+    video_path.write_bytes(b"video")
+    missing_frame = tmp_path / "screenshots_vid" / "frame_000001.jpg"
+    index_path = tmp_path / "screenshots_vid.json"
+    index_path.write_text(
+        json.dumps(
+            {
+                "sampling": "interval",
+                "interval": 30,
+                "safety_interval": 60,
+                "source_key": screenshotter._source_key(video_path),
+                "screenshots": [
+                    {
+                        "seconds": 0,
+                        "timestamp_str": "00:00:00",
+                        "path": str(missing_frame),
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(screenshotter, "_video_duration", lambda path: 5.0)
+    monkeypatch.setattr(screenshotter.subprocess, "Popen", _make_fake_popen(duration=5.0))
+
+    shots = screenshotter.extract_screenshots(video_path, tmp_path, "vid")
+
+    assert [shot.seconds for shot in shots] == [0]
+    assert shots[0].path.is_file()
 
 
 def test_scene_timestamps_never_collide_on_the_ocr_dict_key(monkeypatch, tmp_path):
@@ -352,3 +387,21 @@ def test_scene_timestamps_never_collide_on_the_ocr_dict_key(monkeypatch, tmp_pat
     assert len(keys) == len(set(keys)), f"duplicate OCR keys: {keys}"
     # And the frame files themselves stay distinct.
     assert len({s.path for s in shots}) == len(shots)
+
+
+def test_screenshot_cache_source_key_distinguishes_video_resolution():
+    params = {
+        "legacy": False,
+        "sampling": "interval",
+        "interval": 30,
+        "safety_interval": 60,
+        "source_key": "video_ocr_vid_480p.mp4",
+    }
+
+    assert not screenshotter._params_match(
+        params,
+        sampling="interval",
+        interval=30,
+        safety_interval=60,
+        source_key="video_ocr_vid_720p.mp4",
+    )

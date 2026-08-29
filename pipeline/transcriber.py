@@ -44,23 +44,77 @@ def transcribe(
     cpp_model_path: Path | None = None,
 ) -> list[Segment]:
     """Transcribe audio in PT-BR. Saves/loads output_path for checkpointing."""
-    if output_path.exists():
-        print(f"  Transcript already exists, loading from cache.")
-        return _load(output_path)
+    if backend not in {"mlx", "cpp", "groq"}:
+        raise ValueError(f"Unknown transcription backend: {backend!r}. Choose mlx, cpp, or groq.")
+
+    resolved_cpp_model_path = cpp_model_path
+    provenance = None
+    if _valid_checkpoint(output_path):
+        metadata_path = _provenance_path(output_path)
+        cached_provenance = _load_provenance(metadata_path)
+        if cached_provenance is None and not metadata_path.exists():
+            # Checkpoints created before provenance was introduced are trusted
+            # once, then pinned to the inputs used by this invocation.
+            print("  Transcript already exists, adopting legacy cache.")
+            segments = _load(output_path)
+            try:
+                resolved_cpp_model_path = _resolve_cpp_model_path(
+                    backend,
+                    whisper_model,
+                    cpp_model_path,
+                )
+            except FileNotFoundError:
+                # A transcript checkpoint remains usable without the optional
+                # local backend binary that originally produced it.
+                return segments
+            provenance = _transcript_provenance(
+                audio_path,
+                backend,
+                whisper_model,
+                cpp_model_path=resolved_cpp_model_path,
+            )
+            _save_provenance(provenance, metadata_path)
+            return segments
+        try:
+            resolved_cpp_model_path = _resolve_cpp_model_path(backend, whisper_model, cpp_model_path)
+        except FileNotFoundError:
+            base_provenance = _transcript_provenance(audio_path, backend, whisper_model)
+            if _matches_without_auto_cpp_model(cached_provenance, base_provenance):
+                print("  Transcript checkpoint matches; loading without the local cpp model.")
+                return _load(output_path)
+            raise
+        provenance = _transcript_provenance(
+            audio_path,
+            backend,
+            whisper_model,
+            cpp_model_path=resolved_cpp_model_path,
+        )
+        if cached_provenance == provenance:
+            print(f"  Transcript already exists, loading from cache.")
+            return _load(output_path)
+        print("  Transcript provenance changed, re-transcribing.")
+
+    if provenance is None:
+        resolved_cpp_model_path = _resolve_cpp_model_path(backend, whisper_model, cpp_model_path)
+        provenance = _transcript_provenance(
+            audio_path,
+            backend,
+            whisper_model,
+            cpp_model_path=resolved_cpp_model_path,
+        )
 
     print(f"  Transcribing with backend={backend!r}, model={whisper_model!r}...")
 
     if backend == "mlx":
         segments = _transcribe_mlx(audio_path, whisper_model)
     elif backend == "cpp":
-        segments = _transcribe_cpp(audio_path, whisper_model, cpp_model_path)
+        segments = _transcribe_cpp(audio_path, whisper_model, resolved_cpp_model_path)
     elif backend == "groq":
         segments = _transcribe_groq(audio_path)
-    else:
-        raise ValueError(f"Unknown transcription backend: {backend!r}. Choose mlx, cpp, or groq.")
 
     print(f"  Transcribed {len(segments)} segments.")
     _save(segments, output_path)
+    _save_provenance(provenance, _provenance_path(output_path))
     return segments
 
 
@@ -318,6 +372,85 @@ def _save(segments: list[Segment], path: Path) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def _provenance_path(path: Path) -> Path:
+    return path.with_suffix(".meta.json")
+
+
+def _file_identity(path: Path) -> dict:
+    identity = {"path": str(path.resolve())}
+    try:
+        stat = path.stat()
+    except OSError:
+        identity.update({"size": None, "mtime_ns": None})
+    else:
+        identity.update({"size": stat.st_size, "mtime_ns": stat.st_mtime_ns})
+    return identity
+
+
+def _transcript_provenance(
+    audio_path: Path,
+    backend: str,
+    whisper_model: str,
+    *,
+    cpp_model_path: Path | None = None,
+) -> dict:
+    effective_model = _GROQ_MODEL if backend == "groq" else whisper_model
+    provenance = {
+        "backend": backend,
+        "effective_model": effective_model,
+        "audio": _file_identity(audio_path),
+    }
+    if backend == "cpp" and cpp_model_path is not None:
+        provenance["cpp_model"] = _file_identity(cpp_model_path)
+    return provenance
+
+
+def _resolve_cpp_model_path(
+    backend: str,
+    whisper_model: str,
+    cpp_model_path: Path | None,
+) -> Path | None:
+    if backend != "cpp":
+        return cpp_model_path
+    return cpp_model_path if cpp_model_path is not None else _find_cpp_model(whisper_model)
+
+
+def _matches_without_auto_cpp_model(cached: dict | None, base: dict) -> bool:
+    if not isinstance(cached, dict) or "cpp_model" not in cached:
+        return False
+    cached_without_model = {key: value for key, value in cached.items() if key != "cpp_model"}
+    return cached_without_model == base
+
+
+def transcript_checkpoint_matches(
+    audio_path: Path,
+    output_path: Path,
+    *,
+    backend: str,
+    whisper_model: str,
+    cpp_model_path: Path | None = None,
+) -> bool:
+    """Return whether this invocation would load the transcript checkpoint."""
+    if not _valid_checkpoint(output_path):
+        return False
+    metadata_path = _provenance_path(output_path)
+    cached_provenance = _load_provenance(metadata_path)
+    if cached_provenance is None:
+        return not metadata_path.exists()
+    try:
+        resolved_cpp_model_path = _resolve_cpp_model_path(backend, whisper_model, cpp_model_path)
+    except FileNotFoundError:
+        base_provenance = _transcript_provenance(audio_path, backend, whisper_model)
+        return _matches_without_auto_cpp_model(cached_provenance, base_provenance)
+    requested = _transcript_provenance(
+        audio_path,
+        backend,
+        whisper_model,
+        cpp_model_path=resolved_cpp_model_path,
+    )
+    return cached_provenance == requested
+
+
 def _is_fresh_nonempty_file(path: Path, source: Path) -> bool:
     try:
         path_stat = path.stat()
@@ -325,6 +458,24 @@ def _is_fresh_nonempty_file(path: Path, source: Path) -> bool:
     except OSError:
         return False
     return path.is_file() and path_stat.st_size > 0 and path_stat.st_mtime_ns >= source_stat.st_mtime_ns
+
+
+def _valid_checkpoint(path: Path) -> bool:
+    return path.is_file() and path.stat().st_size > 0
+
+
+def _load_provenance(path: Path) -> dict | None:
+    if not _valid_checkpoint(path):
+        return None
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def _save_provenance(provenance: dict, path: Path) -> None:
+    path.write_text(json.dumps(provenance, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def _load(path: Path) -> list[Segment]:

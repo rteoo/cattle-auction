@@ -4,6 +4,7 @@ Every external stage is stubbed; what is under test is the glue: that the
 transcript gate is applied, that sampling flags reach the screenshot stage,
 and that the reported cost reflects what this run actually spent.
 """
+import json
 import sys
 from pathlib import Path
 
@@ -155,3 +156,24 @@ def test_legacy_video_info_duration_is_derived_for_fresh_groq_transcription(monk
 
     # 30 minutes of fresh Groq transcription costs $0.02.
     assert result.cost_usd == round(0.02 + 0.40 + 0.80, 6)
+
+
+def test_stale_transcript_provenance_is_billed_as_a_fresh_groq_run(monkeypatch, tmp_path):
+    _install_stubs(
+        monkeypatch,
+        tmp_path,
+        segments=[Segment(start=0.0, end=3000.0, text="fala real do leiloeiro")],
+        duration=3600.0,
+    )
+    run_dir = tmp_path / "vid"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    transcript_path = run_dir / "transcript_vid.json"
+    transcript_path.write_text("[]", encoding="utf-8")
+    transcript_path.with_suffix(".meta.json").write_text(
+        json.dumps({"backend": "mlx", "effective_model": "medium", "audio": {}}),
+        encoding="utf-8",
+    )
+
+    result = _run(tmp_path)
+
+    assert result.cost_usd == round(0.04 + 0.40 + 0.80, 6)

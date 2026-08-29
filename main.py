@@ -254,7 +254,13 @@ def _run_single_url(
     # Checked before the call: a transcript served from checkpoint costs
     # nothing, so billing it again would overstate a resumed run's spend.
     transcript_path = run_dir / f"transcript_{video_id}.json"
-    transcript_was_cached = transcript_path.exists()
+    transcript_was_cached = transcriber_mod.transcript_checkpoint_matches(
+        audio_path,
+        transcript_path,
+        backend=transcriber,
+        whisper_model=whisper_model,
+        cpp_model_path=cpp_model,
+    )
     segments = transcriber_mod.transcribe(
         audio_path,
         output_path=transcript_path,
