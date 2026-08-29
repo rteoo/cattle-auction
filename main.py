@@ -839,15 +839,26 @@ def _calculate_summary(lots: list) -> dict:
     category_animals = dict(cat_counter.most_common())
 
     # Price statistics
-    prices = [lot.unit_price for lot in lots if lot.unit_price and lot.unit_price > 0]
-    avg_price = sum(prices) / len(prices) if prices else 0
+    priced_lots = [
+        lot for lot in lots
+        if lot.unit_price and lot.unit_price > 0 and lot.num_animals > 0
+    ]
+    priced_animals = sum(lot.num_animals for lot in priced_lots)
+    avg_price = (
+        sum(lot.unit_price * lot.num_animals for lot in priced_lots) / priced_animals
+        if priced_animals else 0
+    )
 
     # Avg price by category
-    cat_price_lists: dict = defaultdict(list)
-    for lot in lots:
-        if lot.unit_price and lot.unit_price > 0:
-            cat_price_lists[lot.category].append(lot.unit_price)
-    category_prices = {cat: sum(pl) / len(pl) for cat, pl in cat_price_lists.items()}
+    cat_price_totals: dict = defaultdict(float)
+    cat_priced_animals: dict = defaultdict(int)
+    for lot in priced_lots:
+        cat_price_totals[lot.category] += lot.unit_price * lot.num_animals
+        cat_priced_animals[lot.category] += lot.num_animals
+    category_prices = {
+        cat: cat_price_totals[cat] / cat_priced_animals[cat]
+        for cat in cat_price_totals
+    }
 
     # Sold status
     sold = sum(1 for lot in lots if lot.sold is True)
