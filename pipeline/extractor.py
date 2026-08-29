@@ -124,6 +124,7 @@ def extract_lots(
 
     lots_by_number: dict[int, Lot] = {}
     total = len(windows)
+    window_failed = False
 
     for i, window in enumerate(windows, 1):
         already_found = sorted(lots_by_number.keys())
@@ -142,6 +143,7 @@ def extract_lots(
             new_lots = _parse_response(response)
         except Exception as e:
             print(f"  WARNING: LLM call failed for window {i}: {e}")
+            window_failed = True
             continue
 
         # Guard against hallucination bursts (LLM inventing sequential lot numbers).
@@ -168,6 +170,12 @@ def extract_lots(
             _merge(lots_by_number, lot)
 
         print(f"    -> {len(new_lots)} lot(s) found, {len(lots_by_number)} total so far.")
+
+    if window_failed:
+        raise RuntimeError(
+            "Lot extraction incomplete: at least one window failed; "
+            "no final checkpoint was written."
+        )
 
     # Finalize: apply statistical outlier filter + re-check invariants
     # + fill any missing total deterministically.
@@ -295,7 +303,10 @@ def _verify_lot(
         return None
 
     # Find the window whose interval contains this lot's timestamp.
-    ts_sec = _parse_hhmmss(lot.timestamp_start)
+    try:
+        ts_sec = _parse_hhmmss(lot.timestamp_start)
+    except (TypeError, ValueError):
+        return None
     window = next(
         (w for w in windows if w.window_start <= ts_sec <= w.window_end),
         None,
@@ -338,7 +349,7 @@ def _verify_lot(
     except json.JSONDecodeError:
         return None
 
-    confirmed = bool(data.get("confirmed"))
+    confirmed = data.get("confirmed") is True
     correct_price = data.get("correct_unit_price")
 
     if confirmed:
@@ -393,16 +404,19 @@ def _parse_response(response: str) -> list[Lot]:
     except json.JSONDecodeError:
         pass
 
-    match = re.search(r"\[.*?\]", text, re.DOTALL)
-    if match:
+    decoder = json.JSONDecoder()
+    # Try every array start so bracketed prose such as "Summary [done]" does
+    # not hide a valid payload later in the response. raw_decode also handles
+    # brackets inside JSON strings correctly.
+    for match in re.finditer(r"\[", text):
         try:
-            data = json.loads(match.group())
-            if isinstance(data, list):
-                return _validate_lots(data)
+            data, _ = decoder.raw_decode(text[match.start():])
         except json.JSONDecodeError:
-            pass
+            continue
+        if isinstance(data, list):
+            return _validate_lots(data)
 
-    return []
+    raise ValueError("LLM response did not contain a valid JSON array")
 
 
 # How far `unit_price * num_animals` can drift from `total_price` before we
@@ -541,7 +555,7 @@ def _merge(lots_by_number: dict[int, Lot], new_lot: Lot) -> None:
     # sold=True is a final determination and always wins
     sold_existing = existing_data["sold"]
     sold_new = new_data["sold"]
-    if sold_new is True:
+    if sold_existing is True or sold_new is True:
         merged_sold = True
     elif sold_existing is False and sold_new is None:
         merged_sold = False  # preserve explicit not-sold over unknown
@@ -698,21 +712,35 @@ def extract_metadata(
     if cached is not None:
         return cached
 
+    checkpointable = False
     try:
         response = client.complete(system_prompt, combined)
         text = response.strip()
-        # Tolerate extra text around the JSON object
-        match = re.search(r"\{.*\}", text, re.DOTALL)
-        if match:
-            metadata = json.loads(match.group())
-        else:
-            metadata = json.loads(text)
+        decoder = json.JSONDecoder()
+        metadata = None
+        # Try every object start so unrelated braces in a preamble do not make
+        # an otherwise valid metadata object unparsable.
+        for match in re.finditer(r"\{", text):
+            try:
+                candidate, _ = decoder.raw_decode(text[match.start():])
+            except json.JSONDecodeError:
+                continue
+            if isinstance(candidate, dict):
+                metadata = candidate
+                checkpointable = True
+                break
+        if metadata is None:
+            metadata = {}
     except Exception as e:
         print(f"  WARNING: Metadata extraction failed: {e}")
         metadata = {}
 
-    output_path.write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
-    _save_checkpoint_provenance(provenance, _checkpoint_meta_path(output_path))
+    if checkpointable:
+        output_path.write_text(
+            json.dumps(metadata, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        _save_checkpoint_provenance(provenance, _checkpoint_meta_path(output_path))
     return metadata
 
 

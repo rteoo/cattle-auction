@@ -39,6 +39,10 @@ class TestCoercePrice:
     def test_br_two_thousand_separators(self):
         assert self._lot(unit_price="1.234.567,89").unit_price == 1234567.89
 
+    def test_decimal_point_string_is_not_treated_as_thousands(self):
+        assert self._lot(unit_price="3100.50").unit_price == 3100.50
+        assert self._lot(total_price="2750.5").total_price == 2750.5
+
     # R$ prefix stripping
     def test_rs_prefix_stripped(self):
         assert self._lot(unit_price="R$ 2.500,00").unit_price == 2500.0
@@ -70,6 +74,12 @@ class TestCoercePrice:
     def test_total_price_also_coerced(self):
         lot = self._lot(total_price="15.000,00")
         assert lot.total_price == 15000.0
+
+    @pytest.mark.parametrize("field", ["unit_price", "total_price"])
+    @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf"), "NaN", "Infinity", "-Infinity"])
+    def test_non_finite_prices_are_rejected(self, field, value):
+        with pytest.raises(ValidationError):
+            self._lot(**{field: value})
 
     def test_both_prices_coerced(self):
         lot = self._lot(unit_price="3.100,00", total_price="15.500,00")

@@ -119,7 +119,7 @@ PROMPTS_DIR = Path(__file__).parent / "prompts"
     "--no-resume",
     is_flag=True,
     default=False,
-    help="Ignore cached stage outputs and rerun everything.",
+    help="Recompute derived checkpoints; downloaded source media is preserved.",
 )
 @click.option(
     "--metadata/--no-metadata",
@@ -272,6 +272,10 @@ def _run_single_url(
     # checkpoint keeps Whisper's raw output, so tightening these heuristics
     # later does not require re-transcribing anything.
     audio_seconds = video_info.get("duration")
+    if transcriber == "groq" and not transcript_was_cached and audio_seconds is None:
+        # Legacy video-info checkpoints predate the duration field. Derive it
+        # locally so a fresh Groq transcription is billed accurately.
+        audio_seconds = transcriber_mod._audio_duration(audio_path)
     quality = check_transcript(segments, audio_duration=audio_seconds)
     segments = quality.segments
     if quality.status != "ok":
@@ -658,19 +662,20 @@ def _format_batch_markdown(report: dict) -> str:
     )
     for item in report["items"]:
         if item["status"] == "success":
+            avg_price = f"{item.get('avg_price', 0):.2f}"
             lines.append(
                 "| success "
-                f"| {item['video_id']} "
-                f"| {_batch_text(item.get('date'))} "
-                f"| {_batch_text(item.get('city'))} "
-                f"| {_batch_text(_item_auction_name(item))} "
-                f"| {_batch_text(_item_auctioneer(item))} "
-                f"| {item['total_lots']} "
-                f"| {item['total_animals']} "
-                f"| {item['avg_price']:.2f} |"
+                f"| {_markdown_cell(item.get('video_id'))} "
+                f"| {_markdown_cell(item.get('date'))} "
+                f"| {_markdown_cell(item.get('city'))} "
+                f"| {_markdown_cell(_item_auction_name(item))} "
+                f"| {_markdown_cell(_item_auctioneer(item))} "
+                f"| {_markdown_cell(item.get('total_lots', 0))} "
+                f"| {_markdown_cell(item.get('total_animals', 0))} "
+                f"| {_markdown_cell(avg_price)} |"
             )
         else:
-            lines.append(f"| failed | {item['url']} | - | - | - | - | 0 | 0 | 0.00 |")
+            lines.append(f"| failed | {_markdown_cell(item.get('url'))} | - | - | - | - | 0 | 0 | 0.00 |")
 
     if price_categories:
         lines.extend(
@@ -678,7 +683,7 @@ def _format_batch_markdown(report: dict) -> str:
                 "",
                 "## Preço por Categoria",
                 "",
-                "| Video | " + " | ".join(price_categories) + " |",
+                "| Video | " + " | ".join(_markdown_cell(category) for category in price_categories) + " |",
                 "|---|" + "|".join("---:" for _ in price_categories) + "|",
             ]
         )
@@ -689,7 +694,7 @@ def _format_batch_markdown(report: dict) -> str:
                 item.get("category_prices", {}),
                 price_categories,
             )
-            lines.append(f"| {item['video_id']} | " + " | ".join(prices) + " |")
+            lines.append(f"| {_markdown_cell(item.get('video_id'))} | " + " | ".join(_markdown_cell(price) for price in prices) + " |")
 
     lines.append("")
     return "\n".join(lines)
@@ -697,6 +702,20 @@ def _format_batch_markdown(report: dict) -> str:
 
 def _batch_text(value) -> str:
     return str(value) if value else "-"
+
+
+def _markdown_cell(value) -> str:
+    """Render untrusted text safely inside a Markdown table cell."""
+    if value is None or value == "":
+        return "-"
+    return (
+        str(value)
+        .replace("\\", "\\\\")
+        .replace("|", "\\|")
+        .replace("\r\n", "\n")
+        .replace("\r", "\n")
+        .replace("\n", "<br>")
+    )
 
 
 def _item_auction_name(item: dict) -> str | None:
@@ -826,15 +845,26 @@ def _calculate_summary(lots: list) -> dict:
     category_animals = dict(cat_counter.most_common())
 
     # Price statistics
-    prices = [lot.unit_price for lot in lots if lot.unit_price and lot.unit_price > 0]
-    avg_price = sum(prices) / len(prices) if prices else 0
+    priced_lots = [
+        lot for lot in lots
+        if lot.unit_price and lot.unit_price > 0 and lot.num_animals > 0
+    ]
+    priced_animals = sum(lot.num_animals for lot in priced_lots)
+    avg_price = (
+        sum(lot.unit_price * lot.num_animals for lot in priced_lots) / priced_animals
+        if priced_animals else 0
+    )
 
     # Avg price by category
-    cat_price_lists: dict = defaultdict(list)
-    for lot in lots:
-        if lot.unit_price and lot.unit_price > 0:
-            cat_price_lists[lot.category].append(lot.unit_price)
-    category_prices = {cat: sum(pl) / len(pl) for cat, pl in cat_price_lists.items()}
+    cat_price_totals: dict = defaultdict(float)
+    cat_priced_animals: dict = defaultdict(int)
+    for lot in priced_lots:
+        cat_price_totals[lot.category] += lot.unit_price * lot.num_animals
+        cat_priced_animals[lot.category] += lot.num_animals
+    category_prices = {
+        cat: cat_price_totals[cat] / cat_priced_animals[cat]
+        for cat in cat_price_totals
+    }
 
     # Sold status
     sold = sum(1 for lot in lots if lot.sold is True)

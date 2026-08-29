@@ -139,6 +139,25 @@ def test_cached_transcript_is_not_billed_again(monkeypatch, tmp_path):
     assert result.cost_usd == round(0.40 + 0.80, 6)
 
 
+def test_legacy_video_info_duration_is_derived_for_fresh_groq_transcription(monkeypatch, tmp_path):
+    _install_stubs(
+        monkeypatch,
+        tmp_path,
+        segments=[Segment(start=0.0, end=1200.0, text="fala real do leiloeiro")],
+    )
+    monkeypatch.setattr(
+        main.downloader,
+        "get_video_info",
+        lambda url, run_dir, video_id: {"title": "t", "description": "d"},
+    )
+    monkeypatch.setattr(main.transcriber_mod, "_audio_duration", lambda path: 1800.0)
+
+    result = _run(tmp_path)
+
+    # 30 minutes of fresh Groq transcription costs $0.02.
+    assert result.cost_usd == round(0.02 + 0.40 + 0.80, 6)
+
+
 def test_stale_transcript_provenance_is_billed_as_a_fresh_groq_run(monkeypatch, tmp_path):
     _install_stubs(
         monkeypatch,

@@ -86,7 +86,7 @@ whisper-cpp-download-ggml-model medium
 | `--safety-interval` | `60` | Scene sampling only: seconds between safety-grid frames added on top of detections |
 | `--ocr-video-height` | `480` | Maximum video height for OCR screenshots: `480` or `720` |
 | `--output-dir` | `output` | Base directory for all generated files |
-| `--no-resume` | off | Ignore cached stages and rerun everything |
+| `--no-resume` | off | Recompute derived checkpoints; downloaded source media is preserved |
 | `--metadata / --no-metadata` | on | Display auction metadata (date, city, auctioneer, farm, type) |
 | `--summary / --no-summary` | on | Display summary statistics (totals, averages, counts by category) |
 | `--table / --no-table` | on | Display full table of all lots with detailed information |
@@ -127,7 +127,7 @@ uv run python main.py --batch-file links.txt --batch-name maio-2026 --no-table
 # Run a small batch directly from the command line
 uv run python main.py "https://www.youtube.com/watch?v=..." "https://youtu.be/..." --no-table
 
-# Force full rerun (ignore all cached stages)
+# Recompute all derived checkpoints (downloaded source media is preserved)
 uv run python main.py "https://www.youtube.com/watch?v=..." --no-resume
 ```
 
