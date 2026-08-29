@@ -1,3 +1,4 @@
+import os
 import sys
 import types
 from pathlib import Path
@@ -53,3 +54,14 @@ def test_groq_chunking_includes_fractional_tail(monkeypatch, tmp_path):
     transcriber._transcribe_groq(audio)
 
     assert offsets == [0, 900, 1800]
+
+
+def test_derived_audio_cache_must_not_predate_its_source(tmp_path):
+    source = tmp_path / "audio.wav"
+    derived = tmp_path / "audio.mp3"
+    derived.write_bytes(b"old")
+    source.write_bytes(b"newer source")
+    os.utime(derived, ns=(1_000_000_000, 1_000_000_000))
+    os.utime(source, ns=(2_000_000_000, 2_000_000_000))
+
+    assert not transcriber._is_fresh_nonempty_file(derived, source)
