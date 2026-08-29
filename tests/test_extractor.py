@@ -200,6 +200,13 @@ class TestMerge:
         _merge(store, second)
         assert store[1].sold is True
 
+    def test_sold_true_remains_final_when_later_window_says_false(self):
+        """A later contradictory window must not undo a completed sale."""
+        store = {}
+        _merge(store, _make_lot(lot_number=1, sold=True))
+        _merge(store, _make_lot(lot_number=1, sold=False))
+        assert store[1].sold is True
+
 
 # ── _sanity_check: shape invariants (no bounds) ──────────────────────────────
 

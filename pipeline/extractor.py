@@ -528,7 +528,7 @@ def _merge(lots_by_number: dict[int, Lot], new_lot: Lot) -> None:
     # sold=True is a final determination and always wins
     sold_existing = existing_data["sold"]
     sold_new = new_data["sold"]
-    if sold_new is True:
+    if sold_existing is True or sold_new is True:
         merged_sold = True
     elif sold_existing is False and sold_new is None:
         merged_sold = False  # preserve explicit not-sold over unknown
