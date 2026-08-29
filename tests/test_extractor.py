@@ -77,8 +77,9 @@ class TestParseResponse:
         lots = _parse_response("Summary [done].\n" + self.VALID)
         assert [lot.lot_number for lot in lots] == [1]
 
-    def test_invalid_json_returns_empty(self):
-        assert _parse_response("not json at all") == []
+    def test_invalid_json_raises_parse_failure(self):
+        with pytest.raises(ValueError, match="JSON array"):
+            _parse_response("not json at all")
 
     def test_multiple_lots(self):
         raw = (
@@ -654,6 +655,22 @@ class TestExtractLotsCheckpoint:
         with pytest.raises(RuntimeError, match="incomplete"):
             extract_lots(
                 [_make_window(0, 600), _make_window(540, 1140)],
+                client=client,
+                prompt_path=prompt_path,
+                output_path=output_path,
+            )
+
+        assert not output_path.exists()
+
+    def test_malformed_window_response_does_not_write_final_checkpoint(self, tmp_path):
+        prompt_path = tmp_path / "prompt.txt"
+        prompt_path.write_text("extract", encoding="utf-8")
+        output_path = tmp_path / "lots.json"
+        client = _MockClient("not json at all")
+
+        with pytest.raises(RuntimeError, match="incomplete"):
+            extract_lots(
+                [_make_window()],
                 client=client,
                 prompt_path=prompt_path,
                 output_path=output_path,

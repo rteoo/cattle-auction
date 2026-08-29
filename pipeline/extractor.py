@@ -403,7 +403,7 @@ def _parse_response(response: str) -> list[Lot]:
         if isinstance(data, list):
             return _validate_lots(data)
 
-    return []
+    raise ValueError("LLM response did not contain a valid JSON array")
 
 
 # How far `unit_price * num_animals` can drift from `total_price` before we
