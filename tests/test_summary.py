@@ -72,7 +72,7 @@ class TestCalculateSummary:
             lot(3, "misto", "garrote", 4, unit_price=None),  # excluded
         ]
         s = _calculate_summary(lots)
-        assert s["avg_price"] == pytest.approx(4000.0)
+        assert s["avg_price"] == pytest.approx(3750.0)
 
     def test_average_price_excludes_zero(self):
         lots = [
@@ -93,7 +93,7 @@ class TestCalculateSummary:
             lot(3, "fêmea", "vaca", 2, unit_price=6000.0),
         ]
         s = _calculate_summary(lots)
-        assert s["category_prices"]["bezerro"] == pytest.approx(3000.0)
+        assert s["category_prices"]["bezerro"] == pytest.approx(2750.0)
         assert s["category_prices"]["vaca"] == pytest.approx(6000.0)
 
     def test_category_excluded_from_price_if_no_price(self):
@@ -104,6 +104,19 @@ class TestCalculateSummary:
         s = _calculate_summary(lots)
         assert "bezerro" in s["category_prices"]
         assert "vaca" not in s["category_prices"]
+
+    def test_price_averages_are_weighted_by_animals(self):
+        lots = [
+            lot(1, "macho", "bezerro", 1, unit_price=1000.0),
+            lot(2, "macho", "bezerro", 9, unit_price=9000.0),
+            lot(3, "fêmea", "vaca", 2, unit_price=5000.0),
+        ]
+
+        summary = _calculate_summary(lots)
+
+        # (1×1,000 + 9×9,000 + 2×5,000) / 12 = 7,666.67...
+        assert summary["avg_price"] == pytest.approx(7666.666666666667)
+        assert summary["category_prices"]["bezerro"] == pytest.approx(8200.0)
 
     def test_sold_count(self):
         lots = [
