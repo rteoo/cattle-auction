@@ -220,6 +220,16 @@ uv run pytest tests/test_lot_model.py -v  # Run model tests only
 
 All tests are pure unit tests with no external dependencies: no API calls, live video downloads, or large fixtures. Batch tests use temporary files for URL/report handling only.
 
+## Releases
+
+Run the dry run first so the proposed version, tests, package contents, and staged paths are reviewable without changing Git state:
+
+```bash
+uv run python release.py --dry-run
+```
+
+An actual release runs the full test suite, builds a wheel and source archive in a temporary directory, verifies that the wheel contains `main.py` and all PT-BR prompts, excludes local tooling from the source archive, and stages only the allowlisted source and documentation paths. It then creates the release commit, tag, and GitHub release; review the dry-run output before running it.
+
 ## License
 
 This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.

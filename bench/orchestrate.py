@@ -1,4 +1,4 @@
-"""Orchestrate the full benchmark: 5 videos × 15 models = 75 combos.
+"""Orchestrate the benchmark matrix defined by VIDEOS and MODELS.
 Runs up to N in parallel, each as a separate subprocess so failures in one
 don't poison the others. Prints progress as each completes."""
 import subprocess
