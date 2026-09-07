@@ -1,23 +1,34 @@
 """Release boundaries and package contents are explicit and reviewable."""
 
-import tomllib
-from pathlib import Path
+import subprocess
 
-from release import is_release_path_allowed
+import pytest
 
-
-def test_release_staging_allowlist_excludes_generated_and_local_files():
-    assert is_release_path_allowed("bench/analyze.py")
-    assert is_release_path_allowed("README.md")
-    assert not is_release_path_allowed("output/checkpoint.json")
-    assert not is_release_path_allowed(".env")
-    assert not is_release_path_allowed(".clawpatch/findings/report.json")
+from release import stage_release_changes
 
 
-def test_build_manifest_includes_cli_and_prompts_and_excludes_local_tooling():
-    config = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
-    wheel = config["tool"]["hatch"]["build"]["targets"]["wheel"]
-    sdist = config["tool"]["hatch"]["build"]["targets"]["sdist"]
+def test_release_stages_only_allowed_paths_in_a_real_git_index(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    subprocess.run(["git", "init", "-q"], check=True)
+    (tmp_path / "pipeline").mkdir()
+    (tmp_path / "pipeline" / "example.py").write_text("value = 1\n")
+    (tmp_path / "private-notes.txt").write_text("synthetic unrelated file")
 
-    assert wheel["force-include"] == {"main.py": "main.py", "prompts": "prompts"}
-    assert set(sdist["exclude"]) == {"/.claude", "/.clawpatch"}
+    stage_release_changes(False)
+
+    staged = subprocess.check_output(["git", "diff", "--cached", "--name-only"], text=True)
+    assert staged.splitlines() == ["pipeline/example.py"]
+
+
+def test_release_refuses_unrelated_prestaged_files_before_touching_index(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    subprocess.run(["git", "init", "-q"], check=True)
+    (tmp_path / "README.md").write_text("synthetic release documentation")
+    (tmp_path / "private-notes.txt").write_text("synthetic unrelated file")
+    subprocess.run(["git", "add", "--", "private-notes.txt"], check=True)
+
+    with pytest.raises(SystemExit):
+        stage_release_changes(False)
+
+    staged = subprocess.check_output(["git", "diff", "--cached", "--name-only"], text=True)
+    assert staged.splitlines() == ["private-notes.txt"]

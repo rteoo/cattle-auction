@@ -51,6 +51,13 @@ def _valid_prices(lots: list[dict]) -> list[float]:
     ]
 
 
+def _median_price(prices: list[float]) -> float:
+    lower = statistics.median_low(prices)
+    upper = statistics.median_high(prices)
+    # Prices are positive: this midpoint cannot overflow for finite inputs.
+    return lower + (upper - lower) / 2
+
+
 def load_json(path: Path) -> dict | list | None:
     if not path.exists():
         return None
@@ -175,7 +182,7 @@ def main():
             sold = sum(1 for l in ref if l.get("sold") is True)
             if prices:
                 print(f"  {'Claude Opus (reference)':<44} {v:<14} {len(ref):>3} {sold:>4} "
-                      f"R${statistics.mean(prices):>7,.0f} R${statistics.median(prices):>7,.0f} "
+                      f"R${statistics.mean(prices):>7,.0f} R${_median_price(prices):>7,.0f} "
                       f"R${min(prices):>7,.0f} R${max(prices):>7,.0f}")
         for (disp, dirname, *_rest) in MODELS:
             (s, lots, *_) = runs[(v, dirname)]
@@ -185,7 +192,7 @@ def main():
             sold = sum(1 for l in lots if l.get("sold") is True)
             if prices:
                 print(f"  {disp[:44]:<44} {v:<14} {len(lots):>3} {sold:>4} "
-                      f"R${statistics.mean(prices):>7,.0f} R${statistics.median(prices):>7,.0f} "
+                      f"R${statistics.mean(prices):>7,.0f} R${_median_price(prices):>7,.0f} "
                       f"R${min(prices):>7,.0f} R${max(prices):>7,.0f}")
 
     # ── Section 3: Token usage and cost ───────────────────────────────
