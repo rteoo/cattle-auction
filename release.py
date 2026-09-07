@@ -205,8 +205,10 @@ def is_release_path_allowed(path):
 
 def verify_staged_release_paths():
     """Fail before commit if pre-staged files fall outside the release scope."""
-    staged = git("diff", "--cached", "--name-only")
-    disallowed = [path for path in staged.splitlines() if path and not is_release_path_allowed(path)]
+    staged = subprocess.check_output(
+        ["git", "diff", "--cached", "--name-only", "-z"], text=True,
+    )
+    disallowed = [path for path in staged.split("\0") if path and not is_release_path_allowed(path)]
     if disallowed:
         error("Staged paths outside the release allowlist: " + ", ".join(disallowed))
         sys.exit(1)
@@ -270,21 +272,15 @@ def stage_release_changes(dry_run):
         info("Would stage only allowlisted source/docs files")
         return
 
-    # Stage only allowlisted paths. In particular, do not use `git add -u`,
-    # which would pull unrelated tracked changes into the release commit.
-    for d in STAGE_DIRS:
-        if Path(d).is_dir():
-            try:
-                git("add", "-A", "--", d)
-            except subprocess.CalledProcessError:
-                pass
-
-    for f in STAGE_FILES:
-        try:
-            git("add", "-A", "--", f)
-        except subprocess.CalledProcessError:
-            pass
-
+    verify_staged_release_paths()
+    # Include tracked deletions, but skip paths that never existed. A real
+    # staging failure must stop the release instead of committing a subset.
+    paths = [
+        candidate for candidate in (*STAGE_DIRS, *STAGE_FILES)
+        if Path(candidate).exists() or git("ls-files", "--", candidate)
+    ]
+    if paths:
+        git("add", "-A", "--", *paths)
     verify_staged_release_paths()
 
 

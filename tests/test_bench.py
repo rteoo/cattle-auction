@@ -54,6 +54,12 @@ def test_compare_ignores_nonfinite_and_nonpositive_prices():
     assert result["mape"] == pytest.approx(0.1)
 
 
+def test_price_median_stays_finite_at_float_limits():
+    assert analyze._median_price([1e308, 1e308]) == 1e308
+    assert analyze._median_price([5e-324, 5e-324]) == 5e-324
+    assert analyze._median_price([100, 200]) == 150
+
+
 def test_analysis_skips_reference_without_usable_prices(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(analyze, "RESULTS", tmp_path)
     monkeypatch.setattr(analyze, "VIDEOS", ["synthetic"])
