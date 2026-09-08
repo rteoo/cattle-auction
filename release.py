@@ -21,8 +21,10 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import urllib.error
 import urllib.request
+import zipfile
 from datetime import date
 from pathlib import Path
 
@@ -50,6 +52,7 @@ STAGE_FILES = [
     "release.py",
     "uv.lock",
 ]
+PACKAGE_FILES = {"main.py", "prompts/extraction.txt", "prompts/metadata.txt", "prompts/verify.txt"}
 
 OLLAMA_URL = "http://localhost:11434/v1/chat/completions"
 OLLAMA_MODEL = "qwen3.5:2b-q4_K_M"
@@ -188,6 +191,73 @@ def has_pending_changes():
     return bool(git("status", "--porcelain"))
 
 
+def is_release_path_allowed(path):
+    """Return whether a path belongs to the release staging allowlist."""
+    candidate = Path(path)
+    allowed_files = {Path(file_path) for file_path in STAGE_FILES}
+    if candidate in allowed_files:
+        return True
+    return any(
+        candidate == Path(directory) or Path(directory) in candidate.parents
+        for directory in STAGE_DIRS
+    )
+
+
+def verify_staged_release_paths():
+    """Fail before commit if pre-staged files fall outside the release scope."""
+    staged = subprocess.check_output(
+        ["git", "diff", "--cached", "--name-only", "-z"], text=True,
+    )
+    disallowed = [path for path in staged.split("\0") if path and not is_release_path_allowed(path)]
+    if disallowed:
+        error("Staged paths outside the release allowlist: " + ", ".join(disallowed))
+        sys.exit(1)
+
+
+def verify_package_artifacts(build_dir):
+    wheels = sorted(Path(build_dir).glob("*.whl"))
+    if len(wheels) != 1:
+        raise RuntimeError(f"expected one wheel, found {len(wheels)}")
+
+    with zipfile.ZipFile(wheels[0]) as wheel:
+        names = set(wheel.namelist())
+    missing = sorted(PACKAGE_FILES - names)
+    if missing:
+        raise RuntimeError("wheel is missing: " + ", ".join(missing))
+
+    sdists = sorted(Path(build_dir).glob("*.tar.gz"))
+    if len(sdists) != 1:
+        raise RuntimeError(f"expected one source archive, found {len(sdists)}")
+
+    import tarfile
+    with tarfile.open(sdists[0]) as sdist:
+        leaked = [
+            name for name in sdist.getnames()
+            if any(name.split("/", 1)[-1].startswith(prefix) for prefix in (".claude", ".clawpatch"))
+        ]
+    if leaked:
+        raise RuntimeError("source archive includes local tooling: " + ", ".join(leaked))
+
+
+def run_package_build(dry_run):
+    step("Building release artifacts...")
+    if dry_run:
+        info("Would run uv build and verify the wheel CLI/prompts and source archive scope")
+        return
+    if not shutil.which("uv"):
+        error("uv not found; cannot verify release artifacts")
+        sys.exit(1)
+
+    with tempfile.TemporaryDirectory(prefix="cattle-auction-build-") as build_dir:
+        run(["uv", "build", "--out-dir", build_dir], capture=False)
+        try:
+            verify_package_artifacts(build_dir)
+        except (OSError, RuntimeError, zipfile.BadZipFile) as exc:
+            error(f"Release artifact verification failed: {exc}")
+            sys.exit(1)
+    success("Release artifacts verified")
+
+
 # ── Stage and commit release changes ─────────────────────────────────────────
 
 def stage_release_changes(dry_run):
@@ -199,27 +269,19 @@ def stage_release_changes(dry_run):
         info("Working tree is clean before release metadata updates")
 
     if dry_run:
-        info("Would stage tracked changes plus allowlisted source/docs files")
+        info("Would stage only allowlisted source/docs files")
         return
 
-    # Stage tracked modifications/deletions first, then allowlisted untracked files.
-    # This includes docs like AGENTS.md while still avoiding .env, output/, and
-    # other generated or secret-bearing files.
-    git("add", "-u")
-
-    for d in STAGE_DIRS:
-        if Path(d).is_dir():
-            try:
-                git("add", d)
-            except subprocess.CalledProcessError:
-                pass
-
-    for f in STAGE_FILES:
-        if Path(f).exists():
-            try:
-                git("add", f)
-            except subprocess.CalledProcessError:
-                pass
+    verify_staged_release_paths()
+    # Include tracked deletions, but skip paths that never existed. A real
+    # staging failure must stop the release instead of committing a subset.
+    paths = [
+        candidate for candidate in (*STAGE_DIRS, *STAGE_FILES)
+        if Path(candidate).exists() or git("ls-files", "--", candidate)
+    ]
+    if paths:
+        git("add", "-A", "--", *paths)
+    verify_staged_release_paths()
 
 
 def commit_release_changes(tag, message, dry_run):
@@ -612,6 +674,7 @@ def main():
 
     update_changelog(version, release_notes, args.dry_run)
     run_tests(args.no_tests, args.dry_run)
+    run_package_build(args.dry_run)
     stage_release_changes(args.dry_run)
     commit_release_changes(tag, args.commit_message, args.dry_run)
     create_tag(tag, args.dry_run)

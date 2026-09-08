@@ -7,6 +7,7 @@ Produces three sections:
   3. Token usage + cost — applies published $/M-token prices.
 """
 import json
+import math
 import statistics
 from pathlib import Path
 
@@ -31,6 +32,32 @@ MODELS = [
 REFERENCE_VIDEOS = {"sKmUHExf464", "VDzRLEMUagA"}
 
 
+def _is_valid_price(value: object) -> bool:
+    """Return whether a benchmark price is safe to include in statistics."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return False
+    try:
+        numeric = float(value)
+    except OverflowError:
+        return False
+    return math.isfinite(numeric) and numeric > 0
+
+
+def _valid_prices(lots: list[dict]) -> list[float]:
+    return [
+        float(price)
+        for lot in lots
+        if _is_valid_price(price := lot.get("unit_price"))
+    ]
+
+
+def _median_price(prices: list[float]) -> float:
+    lower = statistics.median_low(prices)
+    upper = statistics.median_high(prices)
+    # Prices are positive: this midpoint cannot overflow for finite inputs.
+    return lower + (upper - lower) / 2
+
+
 def load_json(path: Path) -> dict | list | None:
     if not path.exists():
         return None
@@ -49,14 +76,13 @@ def compare(ref: list[dict], model_lots: list[dict]) -> dict:
     extra = set(m_by_num) - set(ref_by_num)
 
     # MAPE on matched lots with both prices set
-    errs, price_within_5pct = [], 0
+    errs = []
     for n in matched:
         rp, mp = ref_by_num[n].get("unit_price"), m_by_num[n].get("unit_price")
-        if rp and mp:
-            e = abs(mp - rp) / rp
-            errs.append(e)
-            if e < 0.05:
-                price_within_5pct += 1
+        if _is_valid_price(rp) and _is_valid_price(mp):
+            e = abs(float(mp) - float(rp)) / float(rp)
+            if math.isfinite(e):
+                errs.append(e)
 
     cat_ok = sum(1 for n in matched
                  if (m_by_num[n].get("category") or "").lower() ==
@@ -103,7 +129,7 @@ def main():
         print(f"  {'-'*44} {'-'*3} {'-'*5} {'-'*4} {'-'*5} {'-'*5} {'-'*5} {'-'*5} {'-'*5} {'-'*7}")
         for (disp, dirname, *_rest) in MODELS:
             (s, lots, *_) = runs[(v, dirname)]
-            if not lots or s.get("status") != "ok":
+            if not lots or not s or s.get("status") != "ok":
                 print(f"  {disp[:44]:<44} {'—'}")
                 continue
             c = compare(ref, lots)
@@ -152,20 +178,21 @@ def main():
     for v in sorted(REFERENCE_VIDEOS):
         ref = load_json(RESULTS / v / "REFERENCE_claude" / "lots.json")
         if ref:
-            prices = [l["unit_price"] for l in ref if l.get("unit_price")]
+            prices = _valid_prices(ref)
             sold = sum(1 for l in ref if l.get("sold") is True)
-            print(f"  {'Claude Opus (reference)':<44} {v:<14} {len(ref):>3} {sold:>4} "
-                  f"R${statistics.mean(prices):>7,.0f} R${statistics.median(prices):>7,.0f} "
-                  f"R${min(prices):>7,.0f} R${max(prices):>7,.0f}")
+            if prices:
+                print(f"  {'Claude Opus (reference)':<44} {v:<14} {len(ref):>3} {sold:>4} "
+                      f"R${statistics.mean(prices):>7,.0f} R${_median_price(prices):>7,.0f} "
+                      f"R${min(prices):>7,.0f} R${max(prices):>7,.0f}")
         for (disp, dirname, *_rest) in MODELS:
             (s, lots, *_) = runs[(v, dirname)]
             if not lots:
                 continue
-            prices = [l.get("unit_price") for l in lots if l.get("unit_price")]
+            prices = _valid_prices(lots)
             sold = sum(1 for l in lots if l.get("sold") is True)
             if prices:
                 print(f"  {disp[:44]:<44} {v:<14} {len(lots):>3} {sold:>4} "
-                      f"R${statistics.mean(prices):>7,.0f} R${statistics.median(prices):>7,.0f} "
+                      f"R${statistics.mean(prices):>7,.0f} R${_median_price(prices):>7,.0f} "
                       f"R${min(prices):>7,.0f} R${max(prices):>7,.0f}")
 
     # ── Section 3: Token usage and cost ───────────────────────────────
