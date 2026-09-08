@@ -1,6 +1,6 @@
 # AGENTS.md
 
-This is the operating guide for GPT-5.5/Codex agents working in this repository. Treat it as the repo-specific source of truth for how to reason about changes, run validation, and avoid damaging expensive pipeline state.
+Project-specific guidance for the auction pipeline, its validation, and its expensive retained state. Agent/model selection follows the active task and runtime settings.
 
 ## Project Snapshot
 
@@ -39,7 +39,7 @@ uv sync --no-install-project
 uv sync --extra local --no-install-project  # optional, Apple Silicon MLX Whisper
 ```
 
-System tools:
+Host prerequisites (user-installed; inspect availability before running the pipeline):
 
 ```bash
 brew install ffmpeg deno
@@ -101,7 +101,7 @@ _DEFAULT_MODELS = {
 
 ## Validation
 
-Run focused tests for normal code changes:
+Full offline suite (targeted test commands follow):
 
 ```bash
 uv run pytest tests/ -v
@@ -289,7 +289,7 @@ For routine implementation work, prefer unit tests over live pipeline runs.
 Before handing off a code change:
 
 1. Run the focused test file for the touched behavior.
-2. Run `uv run pytest tests/ -v` unless the change is docs-only or the user explicitly skips it.
+2. Run `uv run pytest tests/ -v` for changes crossing pipeline stages or before a code handoff; narrow isolated changes use the relevant tests above. Docs-only edits need no pytest run.
 3. Report any live pipeline validation that was not run.
 4. Note any cost-bearing or environment-dependent behavior that remains unverified.
 
