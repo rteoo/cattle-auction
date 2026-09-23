@@ -7,6 +7,8 @@ from urllib.parse import urlparse, parse_qs
 
 import yt_dlp
 
+from pipeline.checkpoint import write_json
+
 
 _YOUTUBE_HOSTS = {
     "youtube.com",
@@ -88,7 +90,13 @@ def get_video_info(url: str, output_dir: Path, video_id: str) -> dict:
     video_id = _validate_path_video_id(video_id)
     cache_path = output_dir / f"video_info_{video_id}.json"
     if cache_path.exists():
-        return json.loads(cache_path.read_text(encoding="utf-8"))
+        try:
+            cached = json.loads(cache_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            cached = None
+        if isinstance(cached, dict):
+            return cached
+        print("  Video info cache is unreadable, fetching again.")
 
     with yt_dlp.YoutubeDL({"quiet": True}) as ydl:
         info = ydl.extract_info(url, download=False)
@@ -100,7 +108,7 @@ def get_video_info(url: str, output_dir: Path, video_id: str) -> dict:
         # Cached files written before this field existed simply lack it.
         "duration": info.get("duration"),
     }
-    cache_path.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_json(cache_path, result)
     return result
 
 

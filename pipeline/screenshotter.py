@@ -5,6 +5,7 @@ from pathlib import Path
 
 from rich.progress import BarColumn, Progress, TaskProgressColumn, TextColumn, TimeElapsedColumn, TimeRemainingColumn
 
+from pipeline.checkpoint import write_json
 from pipeline.scenes import detect_scene_changes
 
 # Minimum spacing (seconds) between kept timestamps in scene sampling.
@@ -317,7 +318,7 @@ def _save(
             for s in screenshots
         ],
     }
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_json(path, data)
 
 
 def _load(path: Path) -> tuple[list[Screenshot], dict] | None:
@@ -331,7 +332,14 @@ def _load(path: Path) -> tuple[list[Screenshot], dict] | None:
     if not path.exists():
         return None
 
-    raw = json.loads(path.read_text(encoding="utf-8"))
+    try:
+        return _parse_index(json.loads(path.read_text(encoding="utf-8")))
+    except (OSError, ValueError, KeyError, TypeError):
+        print("  Screenshot index is unreadable, re-extracting.")
+        return None
+
+
+def _parse_index(raw) -> tuple[list[Screenshot], dict]:
     if isinstance(raw, list):
         screenshots = [
             Screenshot(seconds=d["seconds"], timestamp_str=d["timestamp_str"], path=Path(d["path"]))

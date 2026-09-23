@@ -1,4 +1,3 @@
-import json
 import re
 import sys
 import time
@@ -16,6 +15,7 @@ from rich.table import Table
 from models.lot import AuctionResult
 from pipeline import aggregator, costs, downloader, extractor, ocr, screenshotter
 from pipeline import transcriber as transcriber_mod
+from pipeline.checkpoint import write_json
 from pipeline.transcript_quality import check_transcript
 
 console = Console()
@@ -366,10 +366,7 @@ def _run_single_url(
         cost_usd=run_cost["total_usd"],
     )
     summary_path = run_dir / f"result_{video_id}.json"
-    summary_path.write_text(
-        json.dumps(result.model_dump(), ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    write_json(summary_path, result.model_dump())
 
     console.rule("[bold green]Done")
     if show_metadata and (metadata.get("date") or metadata.get("city") or metadata.get("auctioneer")):
@@ -616,7 +613,7 @@ def _write_batch_report(report: dict, report_dir: Path) -> dict[str, Path]:
     report_dir.mkdir(parents=True, exist_ok=True)
     json_path = report_dir / "batch_summary.json"
     markdown_path = report_dir / "comparison.md"
-    json_path.write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_json(json_path, report)
     markdown_path.write_text(_format_batch_markdown(report), encoding="utf-8")
     return {"json": json_path, "markdown": markdown_path}
 

@@ -217,3 +217,29 @@ def test_interrupted_groq_audio_prep_is_not_resumed_as_complete(monkeypatch, tmp
     transcriber._transcribe_groq(audio)
 
     assert uploaded == [b"complete"]
+
+
+def test_corrupt_transcript_with_matching_provenance_is_retranscribed(monkeypatch, tmp_path):
+    audio = tmp_path / "audio.wav"
+    audio.write_bytes(b"audio")
+    output = tmp_path / "transcript.json"
+    monkeypatch.setattr(
+        transcriber,
+        "_transcribe_groq",
+        lambda path: [transcriber.Segment(0.0, 1.0, "fala")],
+    )
+    transcriber.transcribe(audio, output)
+    output.write_text('[{"start": 0.0, "end"', encoding="utf-8")  # killed mid-write
+
+    assert not transcriber.transcript_checkpoint_matches(
+        audio, output, backend="groq", whisper_model="medium"
+    )
+    calls = []
+    monkeypatch.setattr(
+        transcriber,
+        "_transcribe_groq",
+        lambda path: calls.append(True) or [transcriber.Segment(0.0, 1.0, "de novo")],
+    )
+
+    assert transcriber.transcribe(audio, output)[0].text == "de novo"
+    assert calls == [True]

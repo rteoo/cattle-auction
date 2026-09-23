@@ -405,3 +405,16 @@ def test_screenshot_cache_source_key_distinguishes_video_resolution():
         safety_interval=60,
         source_key="video_ocr_vid_720p.mp4",
     )
+
+
+def test_corrupt_screenshot_index_is_re_extracted(monkeypatch, tmp_path):
+    video = tmp_path / "video.mp4"
+    video.write_bytes(b"video")
+    monkeypatch.setattr(screenshotter, "_video_duration", lambda video_path: 5.0)
+    monkeypatch.setattr(screenshotter.subprocess, "Popen", _make_fake_popen(duration=5.0))
+    (tmp_path / "screenshots_vid.json").write_text('{"sampling": "inter', encoding="utf-8")
+
+    shots = screenshotter.extract_screenshots(video, tmp_path, "vid", interval=5)
+
+    assert [shot.timestamp_str for shot in shots] == ["00:00:00", "00:00:05"]
+    assert json.loads((tmp_path / "screenshots_vid.json").read_text(encoding="utf-8"))["interval"] == 5

@@ -761,6 +761,21 @@ class TestExtractLotsCheckpoint:
         assert client.calls == 0
         assert output_path.with_suffix(".meta.json").exists()
 
+    def test_unreadable_lot_checkpoint_is_re_extracted(self, tmp_path):
+        prompt_path = tmp_path / "prompt.txt"
+        prompt_path.write_text("extract", encoding="utf-8")
+        output_path = tmp_path / "lots.json"
+        extract_lots([_make_window()], _ProvenanceClient("[]"), prompt_path, output_path)
+        output_path.write_text('{"lot_number": 1}', encoding="utf-8")
+
+        client = _ProvenanceClient(
+            '[{"lot_number":1,"sex":"macho","category":"boi","num_animals":1,"breed":"Nelore"}]'
+        )
+        lots = extract_lots([_make_window()], client, prompt_path, output_path)
+
+        assert [lot.lot_number for lot in lots] == [1]
+        assert client.calls == 1
+
 
 class TestExtractMetadata:
     def test_non_object_response_is_replaced_with_empty_object(self, tmp_path):
