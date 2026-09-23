@@ -302,7 +302,7 @@ For routine implementation work, prefer unit tests over live pipeline runs.
 
 ## PR Readiness
 
-CI (`.github/workflows/tests.yml`) runs `uv sync --frozen` and the offline suite on Python 3.11 for every pull request and every push to `main`. It has no API keys and must stay that way: a test that needs a live service belongs outside `tests/`. The actions are pinned to commit SHAs because `astral-sh/setup-uv` publishes no floating major tag; bump them by SHA.
+CI (`.github/workflows/tests.yml`) runs `uv sync --frozen` and the offline suite on Python 3.11 for every pull request and every push to `main`. It has no API keys and must stay that way: a test that needs a live service belongs outside `tests/`. The actions are pinned to commit SHAs because `astral-sh/setup-uv` publishes no floating major tag; `.github/dependabot.yml` opens a weekly PR that bumps each SHA and its version comment. Bump by hand only by SHA, never back to a tag.
 
 Before handing off a code change:
 
