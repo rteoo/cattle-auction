@@ -104,21 +104,23 @@ _DEFAULT_MODELS = {
 Full offline suite (targeted test commands follow):
 
 ```bash
-uv run pytest tests/ -v
+uv run --frozen pytest tests/ -v
 ```
 
 Useful targeted runs:
 
 ```bash
-uv run pytest tests/test_lot_model.py -v
-uv run pytest tests/test_extractor.py -v
-uv run pytest tests/test_aggregator.py -v
-uv run pytest tests/test_summary.py -v
-uv run pytest tests/test_downloader.py -v
-uv run pytest tests/test_scenes.py tests/test_screenshotter.py -v
-uv run pytest tests/test_transcript_quality.py tests/test_costs.py -v
-uv run pytest tests/ -k test_br_ -v
+uv run --frozen pytest tests/test_lot_model.py -v
+uv run --frozen pytest tests/test_extractor.py -v
+uv run --frozen pytest tests/test_aggregator.py -v
+uv run --frozen pytest tests/test_summary.py -v
+uv run --frozen pytest tests/test_downloader.py -v
+uv run --frozen pytest tests/test_scenes.py tests/test_screenshotter.py -v
+uv run --frozen pytest tests/test_transcript_quality.py tests/test_costs.py -v
+uv run --frozen pytest tests/ -k test_br_ -v
 ```
+
+Always pass `--frozen`. `uv.lock` was written under a host-level `exclude-newer` setting; a plain `uv run` on a host without it silently relocks and dirties `uv.lock`. `release.py` runs its test step frozen for the same reason.
 
 The unit tests are pure and should not call external APIs, download videos, or require large fixture files. If a change needs live YouTube, ffmpeg, OCR, Groq, OpenRouter, or OpenAI validation, state that explicitly and keep it separate from the unit test signal.
 
@@ -139,6 +141,8 @@ Pipeline stages write resumable artifacts under `output/<video_id>/`.
 | Metadata | `metadata_<id>.json` |
 | Final result | `result_<id>.json` |
 | Batch summary | `batches/<batch_name>/batch_summary.json`, `batches/<batch_name>/comparison.md` |
+
+ffmpeg-derived media (`audio_<id>.wav`, the Groq `.mp3` and `chunk_NNN.mp3` files) is written to a `<name>.partial.<ext>` sibling and renamed into place only when ffmpeg exits cleanly, because resume treats any non-empty output newer than its source as finished. A leftover `.partial` file is debris from an interrupted run and is safe to ignore.
 
 Do not delete or regenerate `output/` artifacts casually. Full runs can be slow and may incur API cost. Use `--no-resume` only when the task explicitly requires invalidating cached stage outputs.
 
@@ -164,6 +168,9 @@ cattle-auction/
 ├── AGENTS.md                 ← agent operating guide
 ├── README.md                 ← user-facing overview, may lag code
 ├── main.py                   ← Click CLI, stage orchestration, Rich output
+├── benchmark.py              ← legacy side-by-side model comparison on one video
+├── release.py                ← version bump, changelog, allowlisted release commit, tag, GitHub release
+├── bench/                    ← multi-video model benchmark (orchestrate, run_single, analyze)
 ├── models/
 │   └── lot.py                ← Pydantic Lot and AuctionResult models
 ├── pipeline/
@@ -186,11 +193,15 @@ cattle-auction/
     ├── test_aggregator.py    ← time windows and OCR/transcript merging
     ├── test_summary.py       ← summary statistics
     ├── test_batch.py         ← batch URL loading, sequential runs, reports
-    ├── test_downloader.py    ← audio-only download and OCR video resolution
+    ├── test_downloader.py    ← audio-only download, OCR video resolution, interrupted conversions
+    ├── test_transcriber.py   ← transcript provenance, Groq chunking, interrupted conversions
+    ├── test_ocr.py           ← OCR checkpoint provenance
     ├── test_scenes.py        ← stderr parsing, adaptive threshold, gap collapsing
     ├── test_screenshotter.py ← sampling modes, safety grid, checkpoint invalidation
     ├── test_transcript_quality.py ← caption credits, repetition loops, coverage
     ├── test_costs.py         ← price arithmetic and cost formatting
+    ├── test_bench.py         ← benchmark report tolerance, benchmark media caching
+    ├── test_release.py       ← release staging allowlist
     └── test_run_pipeline.py  ← stage wiring: gate applied, flags passed, cost billed
 ```
 
@@ -289,7 +300,7 @@ For routine implementation work, prefer unit tests over live pipeline runs.
 Before handing off a code change:
 
 1. Run the focused test file for the touched behavior.
-2. Run `uv run pytest tests/ -v` for changes crossing pipeline stages or before a code handoff; narrow isolated changes use the relevant tests above. Docs-only edits need no pytest run.
+2. Run `uv run --frozen pytest tests/ -v` for changes crossing pipeline stages or before a code handoff; narrow isolated changes use the relevant tests above. Docs-only edits need no pytest run.
 3. Report any live pipeline validation that was not run.
 4. Note any cost-bearing or environment-dependent behavior that remains unverified.
 

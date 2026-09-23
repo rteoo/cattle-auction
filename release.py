@@ -36,13 +36,14 @@ REPO = "rteoo/cattle-auction"
 CHANGELOG = "CHANGELOG.md"
 PYPROJECT = "pyproject.toml"
 GIT_AUTHOR = "rteoo <rteoo@users.noreply.github.com>"
-TEST_CMD = ["uv", "run", "pytest", "tests/", "-q"]
+# --frozen: test against the committed lock; a host-side uv config drift
+# must not relock uv.lock and slip the change into the release commit.
+TEST_CMD = ["uv", "run", "--frozen", "pytest", "tests/", "-q"]
 
 STAGE_DIRS = ["bench/", "pipeline/", "models/", "prompts/", "tests/", ".github/"]
 STAGE_FILES = [
     ".gitignore",
     "AGENTS.md",
-    "CLAUDE.md",
     "CHANGELOG.md",
     "LICENSE",
     "README.md",

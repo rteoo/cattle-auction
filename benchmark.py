@@ -28,17 +28,19 @@ MODELS = [
 
 def download_small(url: str, output_dir: Path, video_id: str) -> tuple[Path, Path]:
     """Download video at 480p max (smaller/faster) and extract audio."""
+    import os
     import subprocess
 
     video_path = output_dir / f"video_{video_id}.mp4"
     audio_path = output_dir / f"audio_{video_id}.wav"
 
+    # Both steps need these: a cached video with a missing WAV must still convert.
+    env = os.environ.copy()
+    # Ensure winget-installed tools are on PATH
+    winget_links = os.path.expanduser("~") + "\\AppData\\Local\\Microsoft\\WinGet\\Links"
+    env["PATH"] = winget_links + ";" + env.get("PATH", "")
+
     if not video_path.exists():
-        import os
-        env = os.environ.copy()
-        # Ensure winget-installed tools are on PATH
-        winget_links = os.path.expanduser("~") + "\\AppData\\Local\\Microsoft\\WinGet\\Links"
-        env["PATH"] = winget_links + ";" + env.get("PATH", "")
         subprocess.run(
             [
                 "yt-dlp",
@@ -82,7 +84,7 @@ def download_small(url: str, output_dir: Path, video_id: str) -> tuple[Path, Pat
 
 def run_shared_stages(url: str, output_dir: str):
     """Run download, transcription, screenshots, OCR — cached across models."""
-    video_id = url.split("v=")[-1].split("&")[0]
+    video_id = downloader.get_video_id(url)
     run_dir = Path(output_dir) / video_id
     run_dir.mkdir(parents=True, exist_ok=True)
 

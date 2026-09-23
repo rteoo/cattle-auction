@@ -1,8 +1,11 @@
 import json
 import os
+import subprocess
 import sys
 import types
 from pathlib import Path
+
+import pytest
 
 from pipeline import transcriber
 
@@ -173,3 +176,44 @@ def test_derived_audio_cache_must_not_predate_its_source(tmp_path):
     os.utime(source, ns=(2_000_000_000, 2_000_000_000))
 
     assert not transcriber._is_fresh_nonempty_file(derived, source)
+
+
+@pytest.mark.parametrize("oversized", [False, True], ids=["mp3", "chunk"])
+def test_interrupted_groq_audio_prep_is_not_resumed_as_complete(monkeypatch, tmp_path, oversized):
+    audio = tmp_path / "audio.wav"
+    audio.write_bytes(b"audio")
+    if oversized:
+        # A fresh oversized MP3 skips conversion and exercises chunk splitting.
+        with audio.with_suffix(".mp3").open("wb") as handle:
+            handle.seek(transcriber._GROQ_MAX_BYTES + 1)
+            handle.write(b"x")
+
+    class FakeGroq:
+        def __init__(self, **kwargs):
+            pass
+
+    monkeypatch.setenv("GROQ_API_KEY", "test")
+    monkeypatch.setitem(sys.modules, "groq", types.SimpleNamespace(Groq=FakeGroq))
+    monkeypatch.setattr(transcriber, "_audio_duration", lambda path: 60.0)
+    uploaded = []
+    monkeypatch.setattr(
+        transcriber,
+        "_groq_call",
+        lambda client, path, offset: uploaded.append(path.read_bytes()) or [],
+    )
+
+    def interrupted_run(cmd, check):
+        Path(cmd[-5]).write_bytes(b"truncated")
+        raise subprocess.CalledProcessError(255, "ffmpeg")
+
+    monkeypatch.setattr(transcriber.subprocess, "run", interrupted_run)
+    with pytest.raises(subprocess.CalledProcessError):
+        transcriber._transcribe_groq(audio)
+
+    def complete_run(cmd, check):
+        Path(cmd[-5]).write_bytes(b"complete")
+
+    monkeypatch.setattr(transcriber.subprocess, "run", complete_run)
+    transcriber._transcribe_groq(audio)
+
+    assert uploaded == [b"complete"]

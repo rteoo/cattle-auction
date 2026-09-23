@@ -26,6 +26,8 @@ from rich.progress import (
     TimeRemainingColumn,
 )
 
+from pipeline.downloader import partial_output_path
+
 
 @dataclass
 class Segment:
@@ -268,14 +270,16 @@ def _transcribe_groq(audio_path: Path) -> list[Segment]:
     mp3_path = audio_path.with_suffix(".mp3")
     if not _is_fresh_nonempty_file(mp3_path, audio_path):
         print("  Converting audio to MP3 for Groq upload...")
+        partial_mp3 = partial_output_path(mp3_path)
         subprocess.run(
             [
                 "ffmpeg", "-i", str(audio_path),
                 "-codec:a", "libmp3lame", "-b:a", "32k",
-                str(mp3_path), "-y", "-hide_banner", "-loglevel", "error",
+                str(partial_mp3), "-y", "-hide_banner", "-loglevel", "error",
             ],
             check=True,
         )
+        os.replace(partial_mp3, mp3_path)
 
     if mp3_path.stat().st_size <= _GROQ_MAX_BYTES:
         with Progress(
@@ -313,16 +317,18 @@ def _transcribe_groq(audio_path: Path) -> list[Segment]:
             chunk_path = audio_path.parent / f"chunk_{idx + 1:03d}.mp3"
             if not _is_fresh_nonempty_file(chunk_path, mp3_path):
                 chunk_duration = min(chunk_secs, duration - offset)
+                partial_chunk = partial_output_path(chunk_path)
                 subprocess.run(
                     [
                         "ffmpeg", "-i", str(mp3_path),
                         "-ss", str(offset), "-t", str(chunk_duration),
                         "-codec:a", "copy",
-                        str(chunk_path), "-y", "-hide_banner", "-loglevel", "error",
+                        str(partial_chunk), "-y", "-hide_banner", "-loglevel", "error",
                     ],
                     check=True,
                 )
-            progress.update(task, info=f"chunk {idx}/{total_chunks} (offset {offset}s)")
+                os.replace(partial_chunk, chunk_path)
+            progress.update(task, info=f"chunk {idx + 1}/{total_chunks} (offset {offset}s)")
             segments = _groq_call(client, chunk_path, offset=offset)
             all_segments.extend(segments)
             progress.update(task, advance=1)

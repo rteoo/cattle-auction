@@ -4,7 +4,7 @@ import subprocess
 
 import pytest
 
-from release import stage_release_changes
+from release import is_release_path_allowed, stage_release_changes
 
 
 def test_release_stages_only_allowed_paths_in_a_real_git_index(tmp_path, monkeypatch):
@@ -32,3 +32,8 @@ def test_release_refuses_unrelated_prestaged_files_before_touching_index(tmp_pat
 
     staged = subprocess.check_output(["git", "diff", "--cached", "--name-only"], text=True)
     assert staged.splitlines() == ["private-notes.txt"]
+
+
+def test_release_never_stages_a_repository_claude_md():
+    assert not is_release_path_allowed("CLAUDE.md")
+    assert is_release_path_allowed("AGENTS.md")

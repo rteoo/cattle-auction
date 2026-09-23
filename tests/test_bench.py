@@ -78,3 +78,23 @@ def test_analysis_skips_reference_without_usable_prices(tmp_path, monkeypatch, c
     analyze.main()
 
     assert "R$" not in capsys.readouterr().out
+
+
+def test_benchmark_converts_audio_when_only_the_video_is_cached(tmp_path, monkeypatch):
+    import subprocess
+
+    import benchmark
+
+    (tmp_path / "video_vid.mp4").write_bytes(b"cached video")
+    commands = []
+
+    def fake_run(cmd, check, env):
+        commands.append(cmd)
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    benchmark.download_small("https://www.youtube.com/watch?v=vid", tmp_path, "vid")
+
+    assert len(commands) == 1
+    assert commands[0][commands[0].index("-c:a") + 2] == str(tmp_path / "audio_vid.wav")
