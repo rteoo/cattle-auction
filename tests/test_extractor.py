@@ -1,7 +1,9 @@
 """Tests for extractor pure-logic functions: _parse_response, _merge, _validate_lots."""
+import json
+
 import pytest
 
-from models.lot import Lot
+from models.lot import AuctionResult, Lot
 from pipeline.extractor import (
     _parse_response,
     _merge,
@@ -808,3 +810,33 @@ class TestExtractMetadata:
             "city": "Goiânia"
         }
         assert changed.calls == 1
+
+    def test_non_text_metadata_values_are_coerced_for_auction_result(self, tmp_path):
+        prompt = tmp_path / "prompt.txt"
+        prompt.write_text("metadata prompt", encoding="utf-8")
+        output = tmp_path / "metadata.json"
+        client = _MockClient(
+            '{"date": 2024, "city": "  ", "farm": null,'
+            ' "notes": ["Leilão online", "", "120 lotes anunciados"]}'
+        )
+
+        metadata = extract_metadata([], client, prompt, output)
+
+        assert metadata == {
+            "date": "2024",
+            "city": None,
+            "farm": None,
+            "notes": "Leilão online; 120 lotes anunciados",
+        }
+        AuctionResult(video_url="u", video_id="v", total_lots=0, lots=[], **metadata)
+
+    def test_cached_non_text_metadata_is_coerced_on_resume(self, tmp_path):
+        prompt = tmp_path / "prompt.txt"
+        prompt.write_text("metadata prompt", encoding="utf-8")
+        output = tmp_path / "metadata.json"
+        extract_metadata([], _ProvenanceClient('{"notes": ["a", "b"]}'), prompt, output)
+        assert json.loads(output.read_text(encoding="utf-8")) == {"notes": ["a", "b"]}
+
+        resumed = _ProvenanceClient("{}", fail_on_call=True)
+        assert extract_metadata([], resumed, prompt, output) == {"notes": "a; b"}
+        assert resumed.calls == 0

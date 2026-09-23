@@ -710,7 +710,7 @@ def extract_metadata(
         "Auction metadata",
     )
     if cached is not None:
-        return cached
+        return _normalize_metadata(cached)
 
     checkpointable = False
     try:
@@ -741,12 +741,43 @@ def extract_metadata(
             encoding="utf-8",
         )
         _save_checkpoint_provenance(provenance, _checkpoint_meta_path(output_path))
-    return metadata
+    return _normalize_metadata(metadata)
 
 
 def _load_metadata_checkpoint(path: Path) -> dict | None:
     value = json.loads(path.read_text(encoding="utf-8"))
     return value if isinstance(value, dict) else None
+
+
+# String fields of AuctionResult that are filled from the metadata response.
+_METADATA_TEXT_FIELDS = ("date", "city", "auctioneer", "farm", "auction_type", "notes")
+
+
+def _normalize_metadata(metadata: dict) -> dict:
+    """Coerce LLM metadata values to the text AuctionResult requires.
+
+    The prompt invites "uma frase ou lista curta" for notes, and models also
+    return bare numbers for dates. Left raw, either fails AuctionResult
+    validation after every paid stage has run - and the checkpoint replays
+    the same value on resume - so lists are joined and scalars stringified.
+    """
+    normalized = dict(metadata)
+    for field in _METADATA_TEXT_FIELDS:
+        if field in normalized:
+            normalized[field] = _metadata_text(normalized[field])
+    return normalized
+
+
+def _metadata_text(value) -> str | None:
+    if isinstance(value, (list, tuple)):
+        parts = [_metadata_text(item) for item in value]
+        return "; ".join(part for part in parts if part) or None
+    if isinstance(value, dict):
+        return json.dumps(value, ensure_ascii=False) if value else None
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
 
 
 def default_model(provider: str) -> str:
