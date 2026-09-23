@@ -37,3 +37,7 @@ def test_release_refuses_unrelated_prestaged_files_before_touching_index(tmp_pat
 def test_release_never_stages_a_repository_claude_md():
     assert not is_release_path_allowed("CLAUDE.md")
     assert is_release_path_allowed("AGENTS.md")
+
+
+def test_release_stages_the_project_icon():
+    assert is_release_path_allowed("docs/cattle-auction-icon.svg")

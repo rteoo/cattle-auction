@@ -40,7 +40,7 @@ GIT_AUTHOR = "rteoo <rteoo@users.noreply.github.com>"
 # must not relock uv.lock and slip the change into the release commit.
 TEST_CMD = ["uv", "run", "--frozen", "pytest", "tests/", "-q"]
 
-STAGE_DIRS = ["bench/", "pipeline/", "models/", "prompts/", "tests/", ".github/"]
+STAGE_DIRS = ["bench/", "docs/", "pipeline/", "models/", "prompts/", "tests/", ".github/"]
 STAGE_FILES = [
     ".gitignore",
     "AGENTS.md",
