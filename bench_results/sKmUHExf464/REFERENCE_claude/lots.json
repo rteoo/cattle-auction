@@ -10,7 +10,7 @@
     "total_price": 96500.0,
     "sold": true,
     "timestamp_start": "00:01:00",
-    "notes": "Prenhas confirmadas de touro Nelore registrado, 60-120 dias de gestação. 349kg peso médio. Vendedor: David Gonçalves Taboadas. Opção para mais 25 vendida em seguida (368kg, R$ 3.820)."
+    "notes": "Prenhas confirmadas de touro Nelore registrado, 60-120 dias de gestação. 349kg peso médio. Vendedor: [redacted]. Opção para mais 25 vendida em seguida (368kg, R$ 3.820)."
   },
   {
     "lot_number": 32,
@@ -23,7 +23,7 @@
     "total_price": 26200.0,
     "sold": true,
     "timestamp_start": "00:11:30",
-    "notes": "239kg peso médio. Vendedor: Adalton de Oliveira."
+    "notes": "239kg peso médio. Vendedor: [redacted]."
   },
   {
     "lot_number": 23,
@@ -62,7 +62,7 @@
     "total_price": 34320.0,
     "sold": true,
     "timestamp_start": "00:24:00",
-    "notes": "Vacas solteiras. 361kg peso médio. Vendedor: Natalino Ferreira de Souza."
+    "notes": "Vacas solteiras. 361kg peso médio. Vendedor: [redacted]."
   },
   {
     "lot_number": 34,
@@ -75,7 +75,7 @@
     "total_price": 19600.0,
     "sold": true,
     "timestamp_start": "00:28:00",
-    "notes": "Vacas solteiras. Vendedor: Adalton de Oliveira."
+    "notes": "Vacas solteiras. Vendedor: [redacted]."
   },
   {
     "lot_number": 25,
@@ -101,7 +101,7 @@
     "total_price": 17040.0,
     "sold": true,
     "timestamp_start": "00:34:15",
-    "notes": "Vacas solteiras. 324kg peso médio. Vendedor: Jorge de Fátima Costa Guedes. Comprador: Salim Abraão Asper."
+    "notes": "Vacas solteiras. 324kg peso médio. Vendedor: [redacted]. Comprador: [redacted]."
   },
   {
     "lot_number": 36,
@@ -127,7 +127,7 @@
     "total_price": 30580.0,
     "sold": true,
     "timestamp_start": "00:47:45",
-    "notes": "196kg peso médio. Vendedor: Viktor Kayro Souza Santos. Lote misturou-se com lote 19 na retaguarda."
+    "notes": "196kg peso médio. Vendedor: [redacted]. Lote misturou-se com lote 19 na retaguarda."
   },
   {
     "lot_number": 29,
@@ -140,7 +140,7 @@
     "total_price": 13600.0,
     "sold": true,
     "timestamp_start": "00:51:30",
-    "notes": "183kg peso médio. Vendedor: Paulo Victor Lima Pacheco."
+    "notes": "183kg peso médio. Vendedor: [redacted]."
   },
   {
     "lot_number": 20,
@@ -153,7 +153,7 @@
     "total_price": 20580.0,
     "sold": true,
     "timestamp_start": "00:54:30",
-    "notes": "189kg peso médio. Vendedor: Hiran Pimenta Moura."
+    "notes": "189kg peso médio. Vendedor: [redacted]."
   },
   {
     "lot_number": 19,

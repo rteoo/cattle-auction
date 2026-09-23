@@ -301,6 +301,18 @@ For routine implementation work, prefer unit tests over live pipeline runs.
 - Transcript hallucination heuristics: `pipeline/transcript_quality.py` and `tests/test_transcript_quality.py`.
 - Model pricing or cost display: `pipeline/costs.py` and `tests/test_costs.py`. Prices drift — verify against provider pages before trusting a number.
 
+## Public Repository Hygiene
+
+This repository is public. Before staging, check that nothing below rides along.
+
+- **Secrets:** API keys live only in `.env`, which is ignored. Never put a key in code, tests, docs, commit messages, or command examples.
+- **Local tool state:** `.claude/` and `.clawpatch/` hold per-machine agent settings and personal paths. They are ignored and untracked; never force-add them.
+- **Personal paths:** no `/Users/<name>`, `C:\Users\<name>`, or home-directory paths in tracked files. Build paths from `Path.home()` or `os.path.expanduser`.
+- **Pipeline output:** `output/` holds downloaded YouTube media and derived data; it stays ignored.
+- **Benchmark references:** `bench_results/` is ignored, but the two `REFERENCE_claude/lots.json` files are deliberately tracked as the human reference. Private individuals named in a broadcast (sellers, buyers, bidders) appear only as `[redacted]` in `notes`; farm and company names may stay. Any new reference file follows the same rule.
+
+Git history still contains the pre-cleanup copies of `.claude/`, `.clawpatch/`, and the unredacted reference notes. Removing them from history means rewriting shared history and is the owner's decision.
+
 ## PR Readiness
 
 CI (`.github/workflows/tests.yml`) runs `uv sync --frozen` and the offline suite on Python 3.11 for every pull request and every push to `main`. It has no API keys and must stay that way: a test that needs a live service belongs outside `tests/`. The actions are pinned to commit SHAs because `astral-sh/setup-uv` publishes no floating major tag; `.github/dependabot.yml` opens a weekly PR that bumps each SHA and its version comment. Bump by hand only by SHA, never back to a tag.
