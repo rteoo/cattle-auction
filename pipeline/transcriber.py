@@ -332,11 +332,37 @@ def _transcribe_groq(audio_path: Path) -> list[Segment]:
                 )
                 os.replace(partial_chunk, chunk_path)
             progress.update(task, info=f"chunk {idx + 1}/{total_chunks} (offset {offset}s)")
-            segments = _groq_call(client, chunk_path, offset=offset)
+            # A failed request mid-video must not throw away the chunks that
+            # already came back, so each chunk's segments are kept on disk,
+            # bound to the exact chunk file they were transcribed from.
+            chunk_key = {
+                "model": _GROQ_MODEL,
+                "offset": offset,
+                "chunk": _file_identity(chunk_path),
+            }
+            result_path = chunk_path.with_suffix(".json")
+            segments = _load_chunk_result(result_path, chunk_key)
+            if segments is None:
+                segments = _groq_call(client, chunk_path, offset=offset)
+                write_json(result_path, {
+                    "key": chunk_key,
+                    "segments": [{"start": s.start, "end": s.end, "text": s.text} for s in segments],
+                })
             all_segments.extend(segments)
             progress.update(task, advance=1)
 
     return all_segments
+
+
+def _load_chunk_result(path: Path, key: dict) -> list[Segment] | None:
+    """Segments saved for this exact chunk file, or None to transcribe it."""
+    try:
+        saved = json.loads(path.read_text(encoding="utf-8"))
+        if saved["key"] != key:
+            return None
+        return [Segment(**item) for item in saved["segments"]]
+    except (OSError, ValueError, TypeError, KeyError):
+        return None
 
 
 def _groq_call(client, audio_path: Path, offset: float) -> list[Segment]:
