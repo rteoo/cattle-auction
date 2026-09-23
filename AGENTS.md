@@ -169,6 +169,7 @@ Two modes, selected with `--frame-sampling`:
 cattle-auction/
 ├── AGENTS.md                 ← agent operating guide
 ├── README.md                 ← user-facing overview, may lag code
+├── docs/cattle-auction-icon.svg ← project icon (hand-authored SVG, sibling-app palette)
 ├── main.py                   ← Click CLI, stage orchestration, Rich output
 ├── benchmark.py              ← legacy side-by-side model comparison on one video
 ├── release.py                ← version bump, changelog, allowlisted release commit, tag, GitHub release

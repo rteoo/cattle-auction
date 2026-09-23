@@ -1,27 +1,48 @@
-# Cattle Auction Extractor
+# cattle-auction
 
-Extracts structured lot data from Brazilian cattle auction YouTube videos.
+<p align="center">
+  <img src="docs/cattle-auction-icon.svg" width="128" alt="cattle-auction icon">
+</p>
 
-## How it works
+<p align="center">
+  A command-line pipeline that turns Brazilian cattle auction videos on YouTube
+  into structured, checkpointed lot data.
+</p>
 
-1. **Download audio** — fetches audio only with `yt-dlp` and extracts a 16kHz mono audio track
-2. **Transcribe** — transcribes audio in PT-BR using MLX Whisper (local, Metal), whisper.cpp (local, Metal), or Groq API (cloud), then gates the result for known Whisper hallucinations (caption-credit boilerplate, repeated-phrase loops, mostly-silent audio)
-3. **Download OCR video** — fetches a low-resolution video for screenshots, 480p by default or 720p when requested
-4. **Screenshots** — extracts frames with `ffmpeg`, with a live progress bar. By default one frame every 30 seconds; with `--frame-sampling scene` it instead captures the moments the lot board actually changes, plus a coarse safety grid
-5. **OCR** — reads text visible on screen using RapidOCR (ONNX-based, fast, no native deps), with a live progress bar
-6. **Aggregate** — merges transcript segments and OCR results into 10-minute windows
-7. **Extract lots** — sends each window to an LLM with a structured PT-BR prompt to pull out lot data (number, sex, category, count, breed, price, sold status)
-8. **Extract metadata** — scans the first windows to extract auction-level info: date, city, auctioneer, farm, auction type
-9. **Output** — saves `lots_<video_id>.json`, `metadata_<video_id>.json`, and prints a summary table plus the run's estimated USD cost
+<p align="center">
+  <a href="https://github.com/rteoo/cattle-auction/actions/workflows/tests.yml"><img src="https://github.com/rteoo/cattle-auction/actions/workflows/tests.yml/badge.svg" alt="Test status"></a>
+  <a href="https://github.com/rteoo/cattle-auction/tags"><img src="https://img.shields.io/github/v/tag/rteoo/cattle-auction?label=stable" alt="Stable tag"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT license"></a>
+</p>
 
-Each stage is checkpointed. Interrupted runs resume automatically from where they left off.
+Give cattle-auction a YouTube link to a *leilão de gado*. It transcribes the
+auctioneer in Portuguese, reads the on-screen lot board with OCR, and asks an
+LLM to extract every lot: number, sex, category, head count, age, breed, price
+per head, and whether it sold. Results are written as JSON and printed as a
+summary table, together with the run's estimated cost.
 
-## Requirements
+## Highlights
 
-- Python 3.11+
-- `uv` for dependency management
-- `ffmpeg` installed on the system
-- `deno` runtime (used by yt-dlp for YouTube download)
+- Audio-only download for transcription and a separate low-resolution video for
+  OCR, so a multi-hour auction never needs a full-quality download.
+- PT-BR transcription through Groq (cloud, default), MLX Whisper, or whisper.cpp,
+  with a quality gate for caption-credit hallucinations, repetition loops, and
+  mostly-silent audio.
+- Frame sampling on a fixed clock or at the moments the lot board changes.
+- Brazilian number handling: `3.100` is R$ 3,100, never R$ 3.10.
+- Defensive extraction: overlapping windows, duplicate merging, hallucination-burst
+  limits, and a second LLM check for statistically implausible prices.
+- Auction metadata: date, city, auctioneer, farm, and auction type.
+- Batch mode over many videos with a comparison report.
+- Every stage is checkpointed; interrupted runs resume where they stopped, down to
+  the last finished LLM window or Groq audio chunk.
+- A per-run USD cost estimate for LLM tokens and cloud transcription.
+
+## Quick start
+
+cattle-auction runs from source; there is no packaged release. It needs
+Python 3.11 or later, [uv](https://docs.astral.sh/uv/), `ffmpeg`, and the `deno`
+runtime that `yt-dlp` uses for YouTube downloads:
 
 ```bash
 # macOS
@@ -31,129 +52,115 @@ brew install ffmpeg deno
 winget install Gyan.FFmpeg DenoLand.Deno
 ```
 
-## Setup
+Clone the repository and install the locked dependencies:
 
 ```bash
-git clone <repo>
+git clone https://github.com/rteoo/cattle-auction.git
 cd cattle-auction
-uv sync --no-install-project                        # base deps
-uv sync --extra local --no-install-project          # + mlx-whisper (Apple Silicon only)
+uv sync --frozen                  # base dependencies
+uv sync --frozen --extra local    # optional: MLX Whisper, Apple Silicon only
 ```
 
-Fill in your API keys in `.env`:
+## First use
+
+1. Create a `.env` file in the repository root with the keys for the services
+   you will use. The default run needs `OPENROUTER_API_KEY` and `GROQ_API_KEY`:
+
+   ```bash
+   OPENROUTER_API_KEY=sk-or-...
+   GROQ_API_KEY=gsk-...
+   OPENAI_API_KEY=sk-...        # only with --provider openai
+   ```
+
+2. Run the pipeline on one auction:
+
+   ```bash
+   uv run --frozen python main.py "https://www.youtube.com/watch?v=..."
+   ```
+
+3. Read the results in `output/<video_id>/`: `result_<video_id>.json` holds the
+   metadata and every lot, and the terminal shows the summary, the lot table, and
+   the run's estimated cost.
+
+Keys are loaded from `.env` on every run. Only set the keys you need.
+
+## How it works
+
+| Stage | What happens |
+| --- | --- |
+| Download audio | `yt-dlp` fetches audio only; `ffmpeg` converts it to 16 kHz mono WAV |
+| Transcribe | PT-BR speech-to-text, then the hallucination and coverage gate |
+| Download OCR video | A 480p video by default, or 720p on request |
+| Screenshots | `ffmpeg` frames on a fixed interval or at lot-board changes |
+| OCR | RapidOCR reads the on-screen text of every frame |
+| Aggregate | Transcript and OCR merge into 10-minute windows with 1-minute overlap |
+| Extract lots | Each window goes to the LLM with a PT-BR prompt; lots are merged and sanity-checked |
+| Extract metadata | The opening windows plus the video title and description yield auction details |
+
+On-screen data takes priority over audio for lot number, head count, price, and
+sale status. Prices outside the auction's own Tukey fence are sent back to the
+LLM with their source evidence to be confirmed, corrected, or discarded.
+
+## Options
 
 ```bash
-# .env
-OPENAI_API_KEY=sk-...
-GROQ_API_KEY=gsk-...
-OPENROUTER_API_KEY=sk-or-...   # only if using --provider openrouter
+uv run --frozen python main.py <youtube_url> [OPTIONS]
+uv run --frozen python main.py <url_1> <url_2> [OPTIONS]
+uv run --frozen python main.py --batch-file links.txt --batch-name maio-2026 [OPTIONS]
 ```
 
-Keys are loaded automatically from `.env` on every run. Only set the keys you need. The default run uses OpenRouter for extraction and Groq for transcription, so `OPENROUTER_API_KEY` and `GROQ_API_KEY` are required for the default path. Use `OPENAI_API_KEY` only when running with `--provider openai`.
-
-## Usage
-
-```bash
-uv run python main.py <youtube_url> [OPTIONS]
-uv run python main.py <youtube_url_1> <youtube_url_2> [OPTIONS]
-uv run python main.py --batch-file links.txt --batch-name maio-2026 [OPTIONS]
-```
-
-### Transcription backends
-
-| Backend | Flag | Speed | Cost |
-|---|---|---|---|
-| MLX Whisper | `--transcriber mlx` | Fast (Metal, Apple Silicon) | Free |
-| whisper.cpp | `--transcriber cpp` | Fast (Metal, Apple Silicon) | Free |
-| Groq API | `--transcriber groq` | ~228× realtime | ~$0.20 / 5h video |
-
-**whisper.cpp setup** (if using `--transcriber cpp`):
-```bash
-brew install whisper-cpp
-whisper-cpp-download-ggml-model medium
-```
-
-### Options
-
-| Flag | Default | Description |
-|---|---|---|
-| `--transcriber` | `groq` | Transcription backend: `mlx`, `cpp`, or `groq` |
-| `--whisper-model` | `medium` | Model size for mlx/cpp: `tiny` / `base` / `small` / `medium` / `large-v3` |
-| `--cpp-model` | auto | Path to ggml model file (whisper.cpp only) |
+| Option | Default | Effect |
+| --- | --- | --- |
 | `--provider` | `openrouter` | LLM provider: `openrouter` or `openai` |
-| `--screenshot-interval` | `30` | Seconds between captured frames (interval sampling) |
+| `--transcriber` | `groq` | Transcription backend: `groq`, `mlx`, or `cpp` |
+| `--whisper-model` | `medium` | Model size for `mlx` and `cpp`: `tiny`, `base`, `small`, `medium`, `large-v3` |
+| `--cpp-model` | auto | Path to a ggml model file for whisper.cpp |
 | `--frame-sampling` | `interval` | `interval` samples on a fixed clock; `scene` samples where the lot board changes |
-| `--safety-interval` | `60` | Scene sampling only: seconds between safety-grid frames added on top of detections |
-| `--ocr-video-height` | `480` | Maximum video height for OCR screenshots: `480` or `720` |
+| `--screenshot-interval` | `30` | Seconds between frames in interval sampling |
+| `--safety-interval` | `60` | Scene sampling: seconds between safety-grid frames added to detections |
+| `--ocr-video-height` | `480` | OCR video height: `480` or `720` |
 | `--output-dir` | `output` | Base directory for all generated files |
-| `--no-resume` | off | Recompute derived checkpoints; downloaded source media is preserved |
-| `--metadata / --no-metadata` | on | Display auction metadata (date, city, auctioneer, farm, type) |
-| `--summary / --no-summary` | on | Display summary statistics (totals, averages, counts by category) |
-| `--table / --no-table` | on | Display full table of all lots with detailed information |
-| `--batch-file` | off | Text file with one YouTube URL per line; blank lines and `#` comments are ignored |
-| `--batch-name` | timestamp | Name for the saved batch report folder under `output/batches/` |
-| `--stop-on-error` | off | In batch mode, stop after the first failed URL instead of continuing |
+| `--no-resume` | off | Recompute derived checkpoints; downloaded media is kept |
+| `--metadata / --no-metadata` | on | Show auction metadata |
+| `--summary / --no-summary` | on | Show summary statistics |
+| `--table / --no-table` | on | Show the full lot table |
+| `--batch-file` | none | Text file with one URL per line; blank lines and `#` comments are ignored |
+| `--batch-name` | timestamp | Folder name for the batch report under `output/batches/` |
+| `--stop-on-error` | off | Stop a batch at the first failed URL |
 
-### Examples
+Use `--frame-sampling scene` for fewer frames placed closer to lot changes, and
+`--ocr-video-height 720` when small on-screen text is misread at 480p.
 
-```bash
-# Default: OpenRouter Gemini 2.5 Flash-Lite extraction + Groq transcription
-uv run python main.py "https://www.youtube.com/watch?v=..."
+## Batch runs
 
-# Local MLX transcription (Apple Silicon only, requires --extra local)
-uv run python main.py "https://www.youtube.com/watch?v=..." --transcriber mlx
+Pass several URLs, or a file of URLs with `--batch-file`. Videos run one after
+another; each keeps its own checkpoint folder. When the batch finishes, the CLI
+prints a comparison table and writes:
 
-# OpenRouter extraction (default provider)
-uv run python main.py "https://www.youtube.com/watch?v=..." --provider openrouter
+| File | Contents |
+| --- | --- |
+| `output/batches/<name>/batch_summary.json` | Totals, per-video rows, failure records, comparison winners, cost |
+| `output/batches/<name>/comparison.md` | Human-readable summary and per-category price table |
 
-# OpenAI extraction alternative
-uv run python main.py "https://www.youtube.com/watch?v=..." --provider openai
-
-# Show only metadata and summary (no table)
-uv run python main.py "https://www.youtube.com/watch?v=..." --no-table
-
-# Show only the table (no metadata or summary)
-uv run python main.py "https://www.youtube.com/watch?v=..." --no-metadata --no-summary
-
-# Use higher-resolution 720p video for OCR screenshots
-uv run python main.py "https://www.youtube.com/watch?v=..." --ocr-video-height 720
-
-# Sample frames where the lot board changes instead of on a fixed clock
-uv run python main.py "https://www.youtube.com/watch?v=..." --frame-sampling scene
-
-# Run a batch from a text file, one URL per line
-uv run python main.py --batch-file links.txt --batch-name maio-2026 --no-table
-
-# Run a small batch directly from the command line
-uv run python main.py "https://www.youtube.com/watch?v=..." "https://youtu.be/..." --no-table
-
-# Recompute all derived checkpoints (downloaded source media is preserved)
-uv run python main.py "https://www.youtube.com/watch?v=..." --no-resume
-```
-
-Batch mode runs URLs sequentially. Each video keeps its normal checkpoint folder at `output/<video_id>/`; after the batch finishes, the CLI prints a comparison table and writes `output/batches/<batch_name>/batch_summary.json` plus `output/batches/<batch_name>/comparison.md`. Batch mode continues after failed URLs by default, records the error in the report, and exits non-zero if any item failed.
+A batch continues past a failed URL by default, records the error, and exits
+non-zero if any item failed.
 
 ## Output
 
-All files are written to `output/<video_id>/`:
+Every run writes to `output/<video_id>/`:
 
 | File | Contents |
-|---|---|
-| `audio_source_<video_id>.<ext>` | Downloaded audio-only source |
-| `audio_<video_id>.wav` | 16kHz mono audio for Whisper |
-| `video_ocr_<video_id>_480p.mp4` | Default low-resolution video for OCR screenshots |
-| `video_ocr_<video_id>_720p.mp4` | Optional higher-resolution OCR video when `--ocr-video-height 720` is used |
-| `transcript_<video_id>.json` | Timestamped transcript segments |
-| `screenshots_<video_id>/` | JPEG frames at every N seconds |
-| `screenshots_<video_id>.json` | Index of frames with timestamps |
-| `ocr_results_<video_id>.json` | Screen text per timestamp |
-| `lots_<video_id>.json` | Extracted lots (array) |
-| `metadata_<video_id>.json` | Auction metadata (date, city, auctioneer, farm, type) |
-| `result_<video_id>.json` | Final result with metadata and lots |
-| `batches/<batch_name>/batch_summary.json` | Batch totals, per-video rows, failure records, comparison winners |
-| `batches/<batch_name>/comparison.md` | Human-readable batch summary and comparison table |
+| --- | --- |
+| `audio_source_<id>.<ext>`, `audio_<id>.wav` | Downloaded audio and the 16 kHz mono WAV |
+| `video_ocr_<id>_480p.mp4` | Low-resolution video for screenshots (`_720p` on request) |
+| `transcript_<id>.json` | Timestamped transcript segments |
+| `screenshots_<id>/`, `screenshots_<id>.json` | JPEG frames and their index |
+| `ocr_results_<id>.json` | Screen text per timestamp |
+| `lots_<id>.json` | Extracted lots |
+| `metadata_<id>.json` | Date, city, auctioneer, farm, and auction type |
+| `result_<id>.json` | Final result: metadata, lots, and the run's estimated cost |
 
-### Lot schema
+Each lot follows this schema:
 
 ```json
 {
@@ -164,72 +171,125 @@ All files are written to `output/<video_id>/`:
   "age_months": 18,
   "breed": "Nelore",
   "unit_price": 3200.00,
-  "total_price": null,
+  "total_price": 96000.00,
   "sold": true,
   "timestamp_start": "01:24:35",
   "notes": null
 }
 ```
 
-## Estimated run times (5-hour video, Apple Silicon M2)
+`sold` is `true` for *arrematado*, `false` for withdrawn or unsold, and `null`
+when the video does not settle it. `total_price` is recomputed from
+`unit_price × num_animals` when the source does not state it.
 
-| Stage | mlx / cpp | groq |
-|---|---|---|
-| Download audio | network-dependent; audio only | same |
-| Transcribe | ~20–40 min (medium) | ~1–2 min ($0.20) |
-| Download OCR video | network-dependent; defaults to 480p | same |
-| Screenshots (30s interval) | ~2–3 min | same |
-| OCR (~600 frames) | ~5–10 min | same |
-| LLM extraction (~30 windows) | ~3–8 min | same |
+## Models and cost
 
-## LLM providers
+| Transcriber | Flag | Runs on | Cost |
+| --- | --- | --- | --- |
+| Groq Whisper Large v3 Turbo | `--transcriber groq` | Groq cloud | about US$0.04 per audio hour |
+| MLX Whisper | `--transcriber mlx` | Apple Silicon, local | free |
+| whisper.cpp | `--transcriber cpp` | local `whisper-cli` | free |
 
-| Provider | Flag | Default model | Auth |
-|---|---|---|---|
-| OpenRouter | `--provider openrouter` | `google/gemini-2.5-flash-lite-preview-09-2025` | `OPENROUTER_API_KEY` |
-| OpenAI | `--provider openai` | `gpt-4.1-mini` | `OPENAI_API_KEY` |
-
-## Model benchmark
-
-The shipped model catalog is intentionally narrow and benchmark-driven:
-
-| Provider | Model | Cost/video | Speed | Coverage | Accuracy (MAPE) |
-|---|---|---:|---:|---:|---:|
-| **openrouter** (default) | `google/gemini-2.5-flash-lite-preview-09-2025` | ~$0.05 | 13-24s | 92-100% | 1.9-2.0% |
-| openai (alt) | `gpt-4.1-mini` | ~$0.13 | 31s | 100% | 0.1% |
-
-Use `bench/` for the current benchmark harness. `benchmark.py` is a single-video comparison script that now targets the same two shipping models.
-
-## Testing
-
-The project includes a comprehensive unit test suite with 139 tests covering:
-
-- **Model validation** — `Lot` and `AuctionResult` data validation, Brazilian number format coercion, price mis-parsing guards, required field checks
-- **LLM response parsing** — JSON extraction with extra-text tolerance, lot merging, sold field detection
-- **Data aggregation** — Window overlap logic, transcript + OCR merging, broadcast clock filtering, empty window placeholders
-- **Summary statistics** — Animal counts by category and sex, average prices by category, sold/unsold tracking
-- **Batch reports** — URL-file loading, sequential batch runs, saved totals, failure records, comparison winners
-- **Downloader format selection** — Audio-only transcription source, 480p default OCR video, 720p OCR alternative
-
-Run tests:
+For whisper.cpp, install it and download a model first:
 
 ```bash
-uv run pytest tests/ -v              # Run all tests with verbose output
-uv run pytest tests/test_lot_model.py -v  # Run model tests only
+brew install whisper-cpp
+whisper-cpp-download-ggml-model medium
 ```
 
-All tests are pure unit tests with no external dependencies: no API calls, live video downloads, or large fixtures. Batch tests use temporary files for URL/report handling only.
+The two extraction models were chosen by benchmarking against a human reference:
 
-## Releases
+| Provider | Model | Cost per video | Speed | Lot coverage | Price error (MAPE) |
+| --- | --- | ---: | ---: | ---: | ---: |
+| `openrouter` (default) | `google/gemini-2.5-flash-lite-preview-09-2025` | ~US$0.05 | 13–24 s | 92–100% | 1.9–2.0% |
+| `openai` | `gpt-4.1-mini` | ~US$0.13 | 31 s | 100% | 0.1% |
 
-Run the dry run first so the proposed version, tests, package contents, and staged paths are reviewable without changing Git state:
+Measured on a 5-hour video on an Apple Silicon M2, Groq transcribes in about 1–2
+minutes and local medium-model backends in about 20–40. Screenshots take 2–3
+minutes, OCR of ~600 frames 5–10, and extraction of ~30 windows 3–8. Downloads
+depend on the network.
+
+## Resume and checkpoints
+
+Each stage saves its result under `output/<video_id>/`. Downloads are reused
+once complete. The transcript, screenshot, OCR, lot, and metadata checkpoints
+also record the inputs that produced them, so a rerun recomputes a stage when
+its prompt, model, sampling setting, or source file changes and reuses it
+otherwise.
+
+- JSON checkpoints are written atomically, and an unreadable checkpoint is
+  recomputed instead of stopping the run.
+- ffmpeg outputs are renamed into place only after a clean exit, so an
+  interrupted conversion is never mistaken for a finished one.
+- If an LLM window or a Groq chunk fails, the stage stops, but the finished
+  windows and chunks are kept; the rerun only sends what did not finish.
+- `--no-resume` clears derived checkpoints but keeps downloaded media.
+
+A stage served from its checkpoint costs nothing, so a fully resumed run reports
+an estimated cost of about zero.
+
+## Data safety and privacy
+
+cattle-auction sends data only to the services a run uses. It has no telemetry.
+
+- With `--transcriber groq`, the auction audio is uploaded to Groq as 32 kbps MP3.
+  The `mlx` and `cpp` backends keep audio on the machine.
+- Transcript and OCR text for each window, plus the video title and description
+  for metadata, are sent to OpenRouter or OpenAI.
+- API keys stay in `.env`, which is git-ignored. Do not commit it or pass keys on
+  the command line.
+- `output/` is git-ignored. It holds downloaded audio and video from YouTube;
+  keep it private.
+
+## Platform status and limitations
+
+cattle-auction is a Python CLI built on portable tools (`yt-dlp`, `ffmpeg`,
+RapidOCR). The default Groq path is used on macOS and Windows; CI runs the
+offline test suite on Linux with Python 3.11.
+
+- **Transcription:** MLX Whisper runs only on Apple Silicon. whisper.cpp needs
+  `whisper-cli` on `PATH`; its model is auto-detected under `~/.cache/whisper/`
+  or `/opt/homebrew/share/whisper-cpp/`, and otherwise must be passed with
+  `--cpp-model`.
+- **Broadcast layouts:** the extraction prompt is tuned for the common lot-board
+  overlay (`LOTE | fazenda | VALORPORANIMAL | lote | R$ | preço | ...`). Other
+  layouts rely more on the audio and may extract less reliably.
+- **Scene sampling:** the adaptive threshold is calibrated on synthetic lot
+  boards, not yet on real broadcasts with live camera feeds behind the overlay.
+- **Arroba prices:** prices quoted per arroba (@) are recorded in `notes`, not
+  converted to a price per head.
+- **Cost estimates:** per-token and per-hour prices are fixed in
+  `pipeline/costs.py` and drift with provider pricing.
+- **Live verification:** YouTube downloads, ffmpeg, OCR, and LLM or Groq calls
+  are outside the offline test suite and are not exercised in CI.
+
+## Develop and build
+
+Run the offline test suite from the repository root:
 
 ```bash
-uv run python release.py --dry-run
+uv run --frozen pytest tests/ -q
 ```
 
-An actual release runs the full test suite, builds a wheel and source archive in a temporary directory, verifies that the wheel contains `main.py` and all PT-BR prompts, excludes local tooling from the source archive, and stages only the allowlisted source and documentation paths. It then creates the release commit, tag, and GitHub release; review the dry-run output before running it.
+Always pass `--frozen`: it tests the committed `uv.lock` instead of re-resolving
+it. The tests make no network calls, download no videos, and need no API keys.
+[AGENTS.md](AGENTS.md) documents the architecture, extraction rules, and
+checkpoint contract.
+
+The benchmark harness in [`bench/`](bench) compares extraction models against a
+human reference; `benchmark.py` runs a single-video comparison.
+
+Releases use `release.py`. Run the dry run first to review the proposed
+version, tests, package contents, and staged paths without changing Git state:
+
+```bash
+uv run --frozen python release.py --dry-run
+```
+
+A real release runs the tests, builds and verifies the wheel and source archive,
+stages only allowlisted paths, and creates the release commit, tag, and GitHub
+release. Release history is documented in [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
-This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
+cattle-auction is released under the [MIT License](LICENSE).
