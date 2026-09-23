@@ -243,3 +243,46 @@ def test_corrupt_transcript_with_matching_provenance_is_retranscribed(monkeypatc
 
     assert transcriber.transcribe(audio, output)[0].text == "de novo"
     assert calls == [True]
+
+
+def test_failed_groq_chunk_resumes_without_reuploading_finished_chunks(monkeypatch, tmp_path):
+    audio = tmp_path / "audio.wav"
+    audio.write_bytes(b"audio")
+    with audio.with_suffix(".mp3").open("wb") as handle:
+        handle.seek(transcriber._GROQ_MAX_BYTES + 1)
+        handle.write(b"x")
+
+    class FakeGroq:
+        def __init__(self, **kwargs):
+            pass
+
+    monkeypatch.setenv("GROQ_API_KEY", "test")
+    monkeypatch.setitem(sys.modules, "groq", types.SimpleNamespace(Groq=FakeGroq))
+    monkeypatch.setattr(transcriber, "_audio_duration", lambda path: 1800.5)
+
+    def fake_run(cmd, check):
+        Path(cmd[cmd.index("-codec:a") + 2]).write_bytes(b"chunk")
+
+    monkeypatch.setattr(transcriber.subprocess, "run", fake_run)
+    uploaded = []
+
+    def groq_call(client, path, offset, fail_at=None):
+        uploaded.append(offset)
+        if offset == fail_at:
+            raise RuntimeError("503 from Groq")
+        return [transcriber.Segment(offset + 1.0, offset + 2.0, f"fala {offset}")]
+
+    monkeypatch.setattr(
+        transcriber, "_groq_call", lambda c, p, offset: groq_call(c, p, offset, fail_at=900)
+    )
+    with pytest.raises(RuntimeError, match="503"):
+        transcriber._transcribe_groq(audio)
+    assert uploaded == [0, 900]
+
+    uploaded.clear()
+    monkeypatch.setattr(transcriber, "_groq_call", lambda c, p, offset: groq_call(c, p, offset))
+    segments = transcriber._transcribe_groq(audio)
+
+    assert uploaded == [900, 1800]
+    assert [s.text for s in segments] == ["fala 0", "fala 900", "fala 1800"]
+    assert segments[0].start == 1.0
