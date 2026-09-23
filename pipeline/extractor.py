@@ -125,9 +125,23 @@ def extract_lots(
 
     lots_by_number: dict[int, Lot] = {}
     total = len(windows)
-    window_failed = False
+    failed_windows = 0
+
+    # Per-window results survive a failed run, so a retry only pays for the
+    # windows that did not finish. They are bound to the same provenance as
+    # the final checkpoint and replayed in order, which reproduces the merge.
+    progress_path = _window_progress_path(output_path)
+    completed = _load_window_progress(progress_path, provenance)
+    if completed:
+        print(f"  Resuming lot extraction: {len(completed)}/{total} window(s) already done.")
 
     for i, window in enumerate(windows, 1):
+        if i in completed:
+            for lot in completed[i]:
+                _merge(lots_by_number, lot)
+            print(f"  Window {i}/{total}: {window.label} (saved), {len(lots_by_number)} total so far.")
+            continue
+
         already_found = sorted(lots_by_number.keys())
         already_str = str(already_found) if already_found else "nenhum ainda"
 
@@ -144,7 +158,7 @@ def extract_lots(
             new_lots = _parse_response(response)
         except Exception as e:
             print(f"  WARNING: LLM call failed for window {i}: {e}")
-            window_failed = True
+            failed_windows += 1
             continue
 
         # Guard against hallucination bursts (LLM inventing sequential lot numbers).
@@ -157,25 +171,25 @@ def extract_lots(
                 f"Keeping only lots with existing or direct window evidence."
             )
             existing = set(lots_by_number.keys())
-            filtered = [
+            new_lots = [
                 l for l in new_lots
                 if l.lot_number in existing or _lot_has_window_support(l.lot_number, window)
             ]
-            if not filtered:
-                # Nothing salvageable — drop the whole window's output.
-                print(f"    -> 0 lot(s) kept (all were unsupported new numbers).")
-                continue
-            new_lots = filtered
+            if not new_lots:
+                print("    All were unsupported new numbers; dropping the window's output.")
 
+        completed[i] = new_lots
+        _save_window_progress(progress_path, provenance, completed)
         for lot in new_lots:
             _merge(lots_by_number, lot)
 
         print(f"    -> {len(new_lots)} lot(s) found, {len(lots_by_number)} total so far.")
 
-    if window_failed:
+    if failed_windows:
         raise RuntimeError(
-            "Lot extraction incomplete: at least one window failed; "
-            "no final checkpoint was written."
+            f"Lot extraction incomplete: {failed_windows} of {total} window(s) failed; "
+            "no final checkpoint was written. Finished windows are saved and "
+            "will not be re-sent on the next run."
         )
 
     # Finalize: apply statistical outlier filter + re-check invariants
@@ -282,6 +296,7 @@ def extract_lots(
     lots = sorted(lots_by_number.values(), key=lambda l: l.lot_number)
     _save(lots, output_path)
     _save_checkpoint_provenance(provenance, _checkpoint_meta_path(output_path))
+    progress_path.unlink(missing_ok=True)
     return lots
 
 
@@ -582,6 +597,37 @@ def _save(lots: list[Lot], path: Path) -> None:
 
 def _checkpoint_meta_path(path: Path) -> Path:
     return path.with_suffix(".meta.json")
+
+
+def _window_progress_path(path: Path) -> Path:
+    return path.with_suffix(".windows.json")
+
+
+def _load_window_progress(path: Path, provenance: dict) -> dict[int, list[Lot]]:
+    """Return saved per-window lots for this exact provenance, else nothing."""
+    try:
+        saved = json.loads(path.read_text(encoding="utf-8"))
+        if saved.get("provenance") != provenance:
+            return {}
+        return {
+            int(index): [Lot(**item) for item in lots]
+            for index, lots in saved["windows"].items()
+        }
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        print("  Saved window progress is unreadable, starting lot extraction over.")
+        return {}
+
+
+def _save_window_progress(path: Path, provenance: dict, completed: dict[int, list[Lot]]) -> None:
+    write_json(path, {
+        "provenance": provenance,
+        "windows": {
+            str(index): [lot.model_dump() for lot in lots]
+            for index, lots in sorted(completed.items())
+        },
+    })
 
 
 def _stage_provenance(

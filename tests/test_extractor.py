@@ -665,6 +665,35 @@ class _FailingAfterFirstClient:
         return self.response
 
 
+class _WindowScriptedClient:
+    """Answers per window label; labels listed in `fail` raise like a provider outage."""
+
+    provider = "test-provider"
+    model = "test-model"
+
+    def __init__(self, fail=()):
+        self.fail = set(fail)
+        self.sent = []
+
+    def complete(self, system, user):
+        label = user.split("Segmento [", 1)[1].split("]", 1)[0]
+        self.sent.append(label)
+        if label in self.fail:
+            raise RuntimeError("502 upstream error")
+        lot_number = int(label.split(":")[1])  # minute of the window start
+        return json.dumps([{
+            "lot_number": lot_number,
+            "sex": "macho",
+            "category": "bezerro",
+            "num_animals": 10,
+            "breed": "Nelore",
+        }])
+
+
+def _three_windows():
+    return [_make_window(0, 600), _make_window(540, 1140), _make_window(1080, 1680)]
+
+
 class TestExtractLotsCheckpoint:
     def test_partial_window_failure_does_not_write_final_checkpoint(self, tmp_path):
         prompt_path = tmp_path / "prompt.txt"
@@ -776,6 +805,38 @@ class TestExtractLotsCheckpoint:
         assert [lot.lot_number for lot in lots] == [1]
         assert client.calls == 1
 
+    def test_failed_window_resumes_without_resending_finished_windows(self, tmp_path):
+        prompt_path = tmp_path / "prompt.txt"
+        prompt_path.write_text("extract", encoding="utf-8")
+        output_path = tmp_path / "lots.json"
+        windows = _three_windows()
+        failing = _WindowScriptedClient(fail={windows[1].label})
+
+        with pytest.raises(RuntimeError, match="1 of 3 window"):
+            extract_lots(windows, failing, prompt_path, output_path)
+        assert failing.sent == [w.label for w in windows]
+        assert not output_path.exists()
+
+        retry = _WindowScriptedClient()
+        lots = extract_lots(windows, retry, prompt_path, output_path)
+
+        assert retry.sent == [windows[1].label]
+        assert [lot.lot_number for lot in lots] == [0, 9, 18]
+        assert not output_path.with_suffix(".windows.json").exists()
+
+    def test_saved_windows_are_ignored_when_provenance_changes(self, tmp_path):
+        prompt_path = tmp_path / "prompt.txt"
+        prompt_path.write_text("extract", encoding="utf-8")
+        output_path = tmp_path / "lots.json"
+        windows = _three_windows()
+        with pytest.raises(RuntimeError):
+            extract_lots(windows, _WindowScriptedClient(fail={windows[2].label}), prompt_path, output_path)
+
+        prompt_path.write_text("extract v2", encoding="utf-8")
+        retry = _WindowScriptedClient()
+        extract_lots(windows, retry, prompt_path, output_path)
+
+        assert retry.sent == [w.label for w in windows]
 
 class TestExtractMetadata:
     def test_non_object_response_is_replaced_with_empty_object(self, tmp_path):

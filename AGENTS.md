@@ -137,7 +137,7 @@ Pipeline stages write resumable artifacts under `output/<video_id>/`.
 | Screenshots | `screenshots_<id>.json`, `screenshots_<id>/` |
 | Batch summary (cost) | `batches/<name>/batch_summary.json` → `totals.cost_usd` |
 | OCR | `ocr_results_<id>.json` |
-| Lot extraction | `lots_<id>.json` |
+| Lot extraction | `lots_<id>.json`; `lots_<id>.windows.json` holds per-window progress until the stage completes |
 | Metadata | `metadata_<id>.json` |
 | Final result | `result_<id>.json` |
 | Batch summary | `batches/<batch_name>/batch_summary.json`, `batches/<batch_name>/comparison.md` |
@@ -245,6 +245,7 @@ Important invariants:
 - `_parse_response()` accepts a JSON array even if the LLM wraps it in extra text.
 - Each prompt includes already-found lot numbers so the LLM can skip duplicates.
 - `_merge()` deduplicates by `lot_number`.
+- Each finished window's lots are saved to `lots_<id>.windows.json` under the stage provenance. A failed window still fails the stage, but the retry only re-sends unfinished windows; the file is deleted once `lots_<id>.json` is written.
 - Non-price fields prefer first non-null values.
 - Price fields prefer later non-null values because later windows often contain final hammer prices.
 - `sold=True` is final; explicit `sold=False` is preserved over unknown.

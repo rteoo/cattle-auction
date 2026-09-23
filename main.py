@@ -962,6 +962,7 @@ def _clear_cache(run_dir: Path, video_id: str) -> None:
         f"screenshots_{video_id}.json",
         f"ocr_results_{video_id}.json",
         f"lots_{video_id}.json",
+        f"lots_{video_id}.windows.json",
         f"metadata_{video_id}.json",
         f"result_{video_id}.json",
     ]:
