@@ -160,3 +160,24 @@ def test_audio_checkpoint_older_than_source_is_rebuilt(monkeypatch, tmp_path):
     assert downloader.download_audio("https://www.youtube.com/watch?v=vid", tmp_path, "vid") == audio_path
     assert len(calls) == 1
     assert audio_path.read_bytes() == b"fresh wav"
+
+
+def test_interrupted_wav_conversion_is_not_resumed_as_complete(monkeypatch, tmp_path):
+    (tmp_path / "audio_source_vid.m4a").write_bytes(b"source")
+
+    def interrupted_run(cmd, check):
+        Path(cmd[cmd.index("-c:a") + 2]).write_bytes(b"truncated")
+        raise subprocess.CalledProcessError(255, "ffmpeg")
+
+    monkeypatch.setattr(downloader.subprocess, "run", interrupted_run)
+    with pytest.raises(subprocess.CalledProcessError):
+        downloader.download_audio("https://www.youtube.com/watch?v=vid", tmp_path, "vid")
+
+    def complete_run(cmd, check):
+        Path(cmd[cmd.index("-c:a") + 2]).write_bytes(b"complete wav")
+        return subprocess.CompletedProcess(cmd, 0)
+
+    monkeypatch.setattr(downloader.subprocess, "run", complete_run)
+    audio_path = downloader.download_audio("https://www.youtube.com/watch?v=vid", tmp_path, "vid")
+
+    assert audio_path.read_bytes() == b"complete wav"

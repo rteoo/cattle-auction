@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -53,6 +54,17 @@ def _validate_video_id(video_id: str) -> str:
 
 def _has_content(path: Path) -> bool:
     return path.is_file() and path.stat().st_size > 0
+
+
+def partial_output_path(path: Path) -> Path:
+    """Scratch path for an ffmpeg output that is renamed into place on success.
+
+    Resume treats any non-empty output newer than its source as finished, so
+    ffmpeg must never write the final path directly: an interrupted run would
+    leave a truncated file that every later run silently reuses. The original
+    suffix stays last so ffmpeg still infers the container from it.
+    """
+    return path.with_name(f"{path.stem}.partial{path.suffix}")
 
 
 def _is_fresh_nonempty_file(path: Path, source: Path) -> bool:
@@ -121,6 +133,7 @@ def download_audio(url: str, output_dir: Path, video_id: str) -> Path:
     if not _is_fresh_nonempty_file(audio_path, source_path):
         if audio_path.exists():
             audio_path.unlink()
+        partial_path = partial_output_path(audio_path)
         subprocess.run(
             [
                 "ffmpeg",
@@ -128,15 +141,16 @@ def download_audio(url: str, output_dir: Path, video_id: str) -> Path:
                 "-ar", "16000",
                 "-ac", "1",
                 "-c:a", "pcm_s16le",
-                str(audio_path),
+                str(partial_path),
                 "-y",
                 "-hide_banner",
                 "-loglevel", "error",
             ],
             check=True,
         )
-        if not _has_content(audio_path):
+        if not _has_content(partial_path):
             raise FileNotFoundError(f"Could not create extracted audio for {video_id}")
+        os.replace(partial_path, audio_path)
     else:
         print(f"  Audio already extracted, skipping.")
 
