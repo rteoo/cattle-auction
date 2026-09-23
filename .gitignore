@@ -8,3 +8,7 @@ output/
 dist/
 .env
 bench_results/
+
+# Local agent and tool state: machine-specific, may hold personal paths.
+.claude/
+.clawpatch/
