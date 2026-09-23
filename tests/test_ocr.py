@@ -61,3 +61,17 @@ def test_legacy_ocr_with_different_timestamps_is_recomputed(monkeypatch, tmp_pat
 
     assert result == {"00:00:30": ["LOTE 1"]}
     assert reader.calls == [str(image)]
+
+
+def test_corrupt_ocr_checkpoint_is_recomputed(monkeypatch, tmp_path):
+    image = tmp_path / "frame.jpg"
+    image.write_bytes(b"one")
+    shot = Screenshot(0, "00:00:00", image)
+    output = tmp_path / "ocr.json"
+    reader = _Reader()
+    monkeypatch.setitem(sys.modules, "rapidocr_onnxruntime", types.SimpleNamespace(RapidOCR=lambda: reader))
+    ocr.run_ocr([shot], output)
+    output.write_text('{"00:00:00": ["LO', encoding="utf-8")
+
+    assert ocr.run_ocr([shot], output) == {"00:00:00": ["LOTE 1"]}
+    assert len(reader.calls) == 2

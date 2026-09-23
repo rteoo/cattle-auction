@@ -26,6 +26,7 @@ from rich.progress import (
     TimeRemainingColumn,
 )
 
+from pipeline.checkpoint import write_json
 from pipeline.downloader import partial_output_path
 
 
@@ -51,14 +52,16 @@ def transcribe(
 
     resolved_cpp_model_path = cpp_model_path
     provenance = None
-    if _valid_checkpoint(output_path):
+    cached_segments = _read_transcript(output_path)
+    if cached_segments is None and _valid_checkpoint(output_path):
+        print("  Transcript checkpoint is unreadable, re-transcribing.")
+    if cached_segments is not None:
         metadata_path = _provenance_path(output_path)
         cached_provenance = _load_provenance(metadata_path)
         if cached_provenance is None and not metadata_path.exists():
             # Checkpoints created before provenance was introduced are trusted
             # once, then pinned to the inputs used by this invocation.
             print("  Transcript already exists, adopting legacy cache.")
-            segments = _load(output_path)
             try:
                 resolved_cpp_model_path = _resolve_cpp_model_path(
                     backend,
@@ -68,7 +71,7 @@ def transcribe(
             except FileNotFoundError:
                 # A transcript checkpoint remains usable without the optional
                 # local backend binary that originally produced it.
-                return segments
+                return cached_segments
             provenance = _transcript_provenance(
                 audio_path,
                 backend,
@@ -76,14 +79,14 @@ def transcribe(
                 cpp_model_path=resolved_cpp_model_path,
             )
             _save_provenance(provenance, metadata_path)
-            return segments
+            return cached_segments
         try:
             resolved_cpp_model_path = _resolve_cpp_model_path(backend, whisper_model, cpp_model_path)
         except FileNotFoundError:
             base_provenance = _transcript_provenance(audio_path, backend, whisper_model)
             if _matches_without_auto_cpp_model(cached_provenance, base_provenance):
                 print("  Transcript checkpoint matches; loading without the local cpp model.")
-                return _load(output_path)
+                return cached_segments
             raise
         provenance = _transcript_provenance(
             audio_path,
@@ -93,7 +96,7 @@ def transcribe(
         )
         if cached_provenance == provenance:
             print(f"  Transcript already exists, loading from cache.")
-            return _load(output_path)
+            return cached_segments
         print("  Transcript provenance changed, re-transcribing.")
 
     if provenance is None:
@@ -374,8 +377,7 @@ def _audio_duration(path: Path) -> float:
 # ── Checkpoint helpers ────────────────────────────────────────────────────────
 
 def _save(segments: list[Segment], path: Path) -> None:
-    data = [{"start": s.start, "end": s.end, "text": s.text} for s in segments]
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_json(path, [{"start": s.start, "end": s.end, "text": s.text} for s in segments])
 
 
 def _provenance_path(path: Path) -> Path:
@@ -437,7 +439,7 @@ def transcript_checkpoint_matches(
     cpp_model_path: Path | None = None,
 ) -> bool:
     """Return whether this invocation would load the transcript checkpoint."""
-    if not _valid_checkpoint(output_path):
+    if _read_transcript(output_path) is None:
         return False
     metadata_path = _provenance_path(output_path)
     cached_provenance = _load_provenance(metadata_path)
@@ -481,9 +483,21 @@ def _load_provenance(path: Path) -> dict | None:
 
 
 def _save_provenance(provenance: dict, path: Path) -> None:
-    path.write_text(json.dumps(provenance, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_json(path, provenance)
 
 
 def _load(path: Path) -> list[Segment]:
     data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, list):
+        raise ValueError(f"Transcript checkpoint is not a segment list: {path}")
     return [Segment(**d) for d in data]
+
+
+def _read_transcript(path: Path) -> list[Segment] | None:
+    """Load a transcript checkpoint, or None when it is missing or unreadable."""
+    if not _valid_checkpoint(path):
+        return None
+    try:
+        return _load(path)
+    except (OSError, ValueError, TypeError):
+        return None

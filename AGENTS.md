@@ -144,6 +144,8 @@ Pipeline stages write resumable artifacts under `output/<video_id>/`.
 
 ffmpeg-derived media (`audio_<id>.wav`, the Groq `.mp3` and `chunk_NNN.mp3` files) is written to a `<name>.partial.<ext>` sibling and renamed into place only when ffmpeg exits cleanly, because resume treats any non-empty output newer than its source as finished. A leftover `.partial` file is debris from an interrupted run and is safe to ignore.
 
+JSON checkpoints go through `pipeline.checkpoint.write_json` (temp file + atomic rename), and every stage treats an unreadable checkpoint as missing and recomputes it rather than crashing. New checkpoint writes must use `write_json`.
+
 Do not delete or regenerate `output/` artifacts casually. Full runs can be slow and may incur API cost. Use `--no-resume` only when the task explicitly requires invalidating cached stage outputs.
 
 ## Frame Sampling
@@ -180,6 +182,7 @@ cattle-auction/
 │   ├── scenes.py             ← lot-board change detection (adaptive threshold)
 │   ├── transcript_quality.py ← Whisper hallucination / sparse-coverage gate
 │   ├── costs.py              ← token + audio counters → USD estimate
+│   ├── checkpoint.py         ← atomic JSON checkpoint writes
 │   ├── ocr.py                ← RapidOCR screenshot text extraction
 │   ├── aggregator.py         ← transcript/OCR merge into overlapping windows
 │   └── extractor.py          ← LLM clients, JSON parsing, merge, sanity checks
@@ -200,6 +203,7 @@ cattle-auction/
     ├── test_screenshotter.py ← sampling modes, safety grid, checkpoint invalidation
     ├── test_transcript_quality.py ← caption credits, repetition loops, coverage
     ├── test_costs.py         ← price arithmetic and cost formatting
+    ├── test_checkpoint.py    ← atomic checkpoint writes
     ├── test_bench.py         ← benchmark report tolerance, benchmark media caching
     ├── test_release.py       ← release staging allowlist
     └── test_run_pipeline.py  ← stage wiring: gate applied, flags passed, cost billed

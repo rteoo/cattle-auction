@@ -181,3 +181,26 @@ def test_interrupted_wav_conversion_is_not_resumed_as_complete(monkeypatch, tmp_
     audio_path = downloader.download_audio("https://www.youtube.com/watch?v=vid", tmp_path, "vid")
 
     assert audio_path.read_bytes() == b"complete wav"
+
+
+def test_corrupt_video_info_cache_is_fetched_again(monkeypatch, tmp_path):
+    (tmp_path / "video_info_vid.json").write_text('{"title": "Leil', encoding="utf-8")
+
+    class FakeYDL:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+        def extract_info(self, url, download):
+            return {"title": "Leilão Nelore", "description": "", "duration": 3600}
+
+    monkeypatch.setattr(downloader.yt_dlp, "YoutubeDL", FakeYDL)
+
+    info = downloader.get_video_info("https://www.youtube.com/watch?v=vid", tmp_path, "vid")
+
+    assert info == {"title": "Leilão Nelore", "description": "", "duration": 3600}

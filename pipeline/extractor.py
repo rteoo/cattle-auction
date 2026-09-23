@@ -7,6 +7,7 @@ from pathlib import Path
 
 from models.lot import Lot, coerce_price_value
 from pipeline.aggregator import Window
+from pipeline.checkpoint import write_json
 
 # Number of windows from the start to scan for auction metadata
 _METADATA_WINDOWS = 3
@@ -576,8 +577,7 @@ def _merge(lots_by_number: dict[int, Lot], new_lot: Lot) -> None:
 
 
 def _save(lots: list[Lot], path: Path) -> None:
-    data = [lot.model_dump() for lot in lots]
-    path.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_json(path, [lot.model_dump() for lot in lots])
 
 
 def _checkpoint_meta_path(path: Path) -> Path:
@@ -636,7 +636,7 @@ def _load_cached_checkpoint(path: Path, provenance: dict, loader, label: str):
     if not metadata_path.exists():
         try:
             value = loader(path)
-        except (OSError, ValueError):
+        except (OSError, ValueError, TypeError):
             return None
         if value is None:
             return None
@@ -652,7 +652,8 @@ def _load_cached_checkpoint(path: Path, provenance: dict, loader, label: str):
         print(f"  {label} already extracted, loading from cache.")
         try:
             return loader(path)
-        except (OSError, ValueError):
+        except (OSError, ValueError, TypeError):
+            print(f"  {label} checkpoint is unreadable, re-extracting.")
             return None
 
     print(f"  {label} provenance changed, re-extracting.")
@@ -660,10 +661,7 @@ def _load_cached_checkpoint(path: Path, provenance: dict, loader, label: str):
 
 
 def _save_checkpoint_provenance(provenance: dict, path: Path) -> None:
-    path.write_text(
-        json.dumps(provenance, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    write_json(path, provenance)
 
 
 def _load(path: Path) -> list[Lot]:
@@ -736,10 +734,7 @@ def extract_metadata(
         metadata = {}
 
     if checkpointable:
-        output_path.write_text(
-            json.dumps(metadata, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
+        write_json(output_path, metadata)
         _save_checkpoint_provenance(provenance, _checkpoint_meta_path(output_path))
     return _normalize_metadata(metadata)
 

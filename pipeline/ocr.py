@@ -5,6 +5,7 @@ from pathlib import Path
 
 from rich.progress import BarColumn, Progress, TaskProgressColumn, TextColumn, TimeElapsedColumn, TimeRemainingColumn
 
+from pipeline.checkpoint import write_json
 from pipeline.screenshotter import Screenshot
 
 
@@ -21,18 +22,21 @@ def run_ocr(
     if _valid_checkpoint(output_path):
         metadata_path = _provenance_path(output_path)
         cached_provenance = _load_provenance(metadata_path)
-        if cached_provenance is None and not metadata_path.exists():
-            result = json.loads(output_path.read_text(encoding="utf-8"))
+        cached_results = _load_results(output_path)
+        if cached_results is None:
+            print("  OCR checkpoint is unreadable, re-running OCR.")
+        elif cached_provenance is None and not metadata_path.exists():
             expected_timestamps = {shot.timestamp_str for shot in screenshots}
-            if isinstance(result, dict) and set(result) == expected_timestamps:
+            if set(cached_results) == expected_timestamps:
                 print("  OCR results already exist, adopting legacy cache.")
                 _save_provenance(provenance, metadata_path)
-                return result
+                return cached_results
             print("  Legacy OCR cache does not match screenshots; re-running OCR.")
-        if cached_provenance == provenance:
+        elif cached_provenance == provenance:
             print(f"  OCR results already exist, loading from cache.")
-            return json.loads(output_path.read_text(encoding="utf-8"))
-        print("  OCR provenance changed, re-running OCR.")
+            return cached_results
+        else:
+            print("  OCR provenance changed, re-running OCR.")
 
     from rapidocr_onnxruntime import RapidOCR
 
@@ -71,7 +75,7 @@ def run_ocr(
 
             results[shot.timestamp_str] = lines
 
-    output_path.write_text(json.dumps(results, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_json(output_path, results)
     _save_provenance(provenance, _provenance_path(output_path))
     return results
 
@@ -119,5 +123,13 @@ def _load_provenance(path: Path) -> dict | None:
     return value if isinstance(value, dict) else None
 
 
+def _load_results(path: Path) -> dict[str, list[str]] | None:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return value if isinstance(value, dict) else None
+
+
 def _save_provenance(provenance: dict, path: Path) -> None:
-    path.write_text(json.dumps(provenance, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_json(path, provenance)
