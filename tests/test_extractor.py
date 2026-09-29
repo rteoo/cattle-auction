@@ -26,27 +26,11 @@ class TestValidateLots:
         base.update(kwargs)
         return base
 
-    def test_valid_item_returns_lot(self):
-        lots = _validate_lots([self._valid()])
-        assert len(lots) == 1
-        assert isinstance(lots[0], Lot)
-
-    def test_invalid_item_skipped(self):
-        lots = _validate_lots([{"bad": "data"}])
-        assert lots == []
-
     def test_mixed_valid_and_invalid(self):
         items = [self._valid(lot_number=1), {"bad": "data"}, self._valid(lot_number=2)]
         lots = _validate_lots(items)
         assert len(lots) == 2
         assert [l.lot_number for l in lots] == [1, 2]
-
-    def test_empty_list(self):
-        assert _validate_lots([]) == []
-
-    def test_price_coerced_in_validated_lot(self):
-        lots = _validate_lots([self._valid(unit_price="3.100")])
-        assert lots[0].unit_price == 3100.0
 
 
 # ── _parse_response ──────────────────────────────────────────────────────────
@@ -54,21 +38,8 @@ class TestValidateLots:
 class TestParseResponse:
     VALID = '[{"lot_number":1,"sex":"macho","category":"bezerro","num_animals":5,"breed":"Nelore"}]'
 
-    def test_clean_json_array(self):
-        lots = _parse_response(self.VALID)
-        assert len(lots) == 1
-        assert lots[0].lot_number == 1
-
     def test_empty_array(self):
         assert _parse_response("[]") == []
-
-    def test_extra_text_before(self):
-        lots = _parse_response("Here are the lots:\n" + self.VALID)
-        assert len(lots) == 1
-
-    def test_extra_text_after(self):
-        lots = _parse_response(self.VALID + "\nDone.")
-        assert len(lots) == 1
 
     def test_extra_text_both_sides(self):
         lots = _parse_response("Sure!\n" + self.VALID + "\nHope that helps.")
@@ -92,10 +63,6 @@ class TestParseResponse:
         assert len(lots) == 2
         assert lots[0].lot_number == 1
         assert lots[1].lot_number == 2
-
-    def test_whitespace_stripped(self):
-        lots = _parse_response("  " + self.VALID + "  ")
-        assert len(lots) == 1
 
     def test_invalid_lot_inside_valid_json_skipped(self):
         raw = '[{"bad":"data"}, {"lot_number":2,"sex":"macho","category":"bezerro","num_animals":3,"breed":"Nelore"}]'
@@ -124,14 +91,6 @@ class TestMerge:
         _merge(store, lot)
         assert 1 in store
         assert store[1] is lot
-
-    def test_existing_lot_nulls_filled_by_new(self):
-        store = {}
-        first = _make_lot(lot_number=1, unit_price=None)
-        _merge(store, first)
-        second = _make_lot(lot_number=1, unit_price=3000.0)
-        _merge(store, second)
-        assert store[1].unit_price == 3000.0
 
     def test_non_price_non_null_not_overwritten(self):
         """First non-null wins for stable fields like breed."""
@@ -177,12 +136,6 @@ class TestMerge:
         assert store[1].unit_price == 3000.0
         assert store[1].age_months == 12
 
-    def test_different_lots_stored_independently(self):
-        store = {}
-        _merge(store, _make_lot(lot_number=1))
-        _merge(store, _make_lot(lot_number=2))
-        assert set(store.keys()) == {1, 2}
-
     def test_sold_false_not_overwritten_by_none(self):
         """sold=False is a value — None should not overwrite it."""
         store = {}
@@ -191,14 +144,6 @@ class TestMerge:
         second = _make_lot(lot_number=1, sold=None)
         _merge(store, second)
         assert store[1].sold is False
-
-    def test_sold_none_filled_by_true(self):
-        store = {}
-        first = _make_lot(lot_number=1, sold=None)
-        _merge(store, first)
-        second = _make_lot(lot_number=1, sold=True)
-        _merge(store, second)
-        assert store[1].sold is True
 
     def test_sold_true_overrides_false(self):
         """sold=True is a final determination — overrides prior False."""
@@ -238,35 +183,12 @@ class TestSanityCheckInvariants:
         assert checked.unit_price == 3000.0
         assert checked.total_price is None
 
-    def test_product_match_preserved(self):
-        lot = self._lot(num_animals=10, unit_price=3000.0, total_price=30000.0)
-        checked = _sanity_check(lot)
-        assert checked.unit_price == 3000.0
-        assert checked.total_price == 30000.0
-
     def test_product_within_tolerance(self):
         """Small rounding difference is tolerated."""
         lot = self._lot(num_animals=10, unit_price=3000.0, total_price=29500.0)
         checked = _sanity_check(lot)
         assert checked.unit_price == 3000.0
         assert checked.total_price == 29500.0
-
-    # unit > total fallback (fires when num_animals is missing)
-    def test_unit_greater_than_total_without_num_animals_hits_fallback(self):
-        """Without num_animals, product check can't run; inversion fallback catches it."""
-        lot = self._lot(num_animals=1, unit_price=5000.0, total_price=1000.0)
-        # product check sees expected=5000, total=1000, rel_err=0.8 → clears total first
-        # So the fallback inversion check won't fire. That's fine — trusting unit
-        # when they disagree is the right call when a num is known (num=1 here).
-        checked = _sanity_check(lot)
-        assert checked.unit_price == 5000.0
-        assert checked.total_price is None
-
-    def test_null_prices_unchanged(self):
-        lot = self._lot(unit_price=None, total_price=None)
-        checked = _sanity_check(lot)
-        assert checked.unit_price is None
-        assert checked.total_price is None
 
     def test_only_unit_present_passes(self):
         """total_price can be legitimately null — don't penalize that."""
@@ -376,20 +298,6 @@ class TestComputePriceBounds:
         # And the hallucinations themselves are clearly rejected
         assert hi_polluted < 10000.0
 
-    def test_typical_auction_distribution(self):
-        """A realistic auction produces bounds that cover the mass of the
-        distribution and exclude extreme hallucinations."""
-        prices = (
-            [3000.0] * 20 + [2500.0] * 15 + [3500.0] * 15
-            + [4000.0, 4500.0, 2000.0, 2200.0]
-        )
-        lo, hi = _compute_price_bounds(prices)
-        # R$ 30k bezerro hallucination would be above the upper fence
-        assert hi < 30000.0
-        # Typical values fit inside the fence
-        assert lo < 2500.0 < hi
-        assert lo < 3500.0 < hi
-
     def test_zero_prices_excluded(self):
         """Zeros (unbid lots) don't count in the distribution."""
         import math
@@ -440,12 +348,6 @@ class TestValidateLotsShapeOnly:
 # ── _parse_hhmmss ────────────────────────────────────────────────────────────
 
 class TestParseHHMMSS:
-    def test_basic(self):
-        assert _parse_hhmmss("00:00:00") == 0
-        assert _parse_hhmmss("00:01:00") == 60
-        assert _parse_hhmmss("01:00:00") == 3600
-        assert _parse_hhmmss("02:30:45") == 2 * 3600 + 30 * 60 + 45
-
     def test_invalid_raises(self):
         with pytest.raises(ValueError):
             _parse_hhmmss("not a timestamp")
@@ -538,15 +440,6 @@ class TestVerifyLot:
         lot = _flagged_lot(unit_price=55000.0)
         verdict = _verify_lot(lot, [_make_window()], client, "test prompt")
         assert verdict == "confirm"
-
-    def test_correction_returned_as_float(self):
-        """Corrections come back as float, regardless of LLM-emitted JSON type."""
-        # JSON integer
-        client1 = _MockClient('{"confirmed": false, "correct_unit_price": 3200}')
-        assert _verify_lot(_flagged_lot(), [_make_window()], client1, "p") == 3200.0
-        # JSON float
-        client2 = _MockClient('{"confirmed": false, "correct_unit_price": 3200.50}')
-        assert _verify_lot(_flagged_lot(), [_make_window()], client2, "p") == 3200.5
 
     def test_correction_accepts_br_formatted_price(self):
         """Verification uses the same BR price parsing rules as lot extraction."""

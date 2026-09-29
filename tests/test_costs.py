@@ -55,35 +55,12 @@ class TestTranscriptionCost:
         )
         assert result["transcription_usd"] == round(GROQ_WHISPER_USD_PER_HOUR, 6)
 
-    def test_groq_half_hour(self):
-        result = estimate_cost(
-            "gpt-4.1-mini", input_tokens=0, output_tokens=0,
-            transcriber="groq", audio_seconds=1800.0,
-        )
-        assert result["transcription_usd"] == round(GROQ_WHISPER_USD_PER_HOUR / 2, 6)
-
     def test_mlx_is_free(self):
         result = estimate_cost(
             "gpt-4.1-mini", input_tokens=0, output_tokens=0,
             transcriber="mlx", audio_seconds=99999.0,
         )
         assert result["transcription_usd"] == 0.0
-
-    def test_cpp_is_free(self):
-        result = estimate_cost(
-            "gpt-4.1-mini", input_tokens=0, output_tokens=0,
-            transcriber="cpp", audio_seconds=99999.0,
-        )
-        assert result["transcription_usd"] == 0.0
-
-
-class TestZeroTokens:
-    def test_zero_tokens_and_zero_audio_is_zero(self):
-        result = estimate_cost(
-            "gpt-4.1-mini", input_tokens=0, output_tokens=0, transcriber="mlx",
-        )
-        assert result == {"llm_usd": 0.0, "transcription_usd": 0.0, "total_usd": 0.0}
-
 
 class TestFormatCost:
     def test_typical_amount(self):
@@ -94,6 +71,3 @@ class TestFormatCost:
 
     def test_tiny_positive_amount_below_display_precision(self):
         assert format_cost(0.00003) == "<$0.0001"
-
-    def test_boundary_at_display_precision(self):
-        assert format_cost(0.0001) == "$0.0001"

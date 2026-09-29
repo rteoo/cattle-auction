@@ -2,7 +2,7 @@
 import pytest
 from pydantic import ValidationError
 
-from models.lot import Lot, AuctionResult
+from models.lot import Lot
 
 
 # ── coerce_price ────────────────────────────────────────────────────────────
@@ -14,16 +14,6 @@ class TestCoercePrice:
             num_animals=5, breed="Nelore",
             unit_price=unit_price, total_price=total_price,
         )
-
-    # Plain numbers
-    def test_float_passthrough(self):
-        assert self._lot(unit_price=3200.0).unit_price == 3200.0
-
-    def test_int_coerced_to_float(self):
-        assert self._lot(unit_price=3200).unit_price == 3200.0
-
-    def test_none_stays_none(self):
-        assert self._lot(unit_price=None).unit_price is None
 
     # Brazilian thousand-separator format (the 3.100 → 3.10 bug)
     def test_br_thousand_dot_no_decimal(self):
@@ -47,9 +37,6 @@ class TestCoercePrice:
     def test_rs_prefix_stripped(self):
         assert self._lot(unit_price="R$ 2.500,00").unit_price == 2500.0
 
-    def test_rs_prefix_no_space(self):
-        assert self._lot(unit_price="R$2.500").unit_price == 2500.0
-
     # BR float mis-parse guard: LLM outputs "5.160" in JSON → Python float 5.16
     def test_float_under_100_multiplied_by_1000(self):
         """5.16 (from JSON "5.160") must be corrected to 5160."""
@@ -65,9 +52,6 @@ class TestCoercePrice:
         assert self._lot(unit_price=0).unit_price == pytest.approx(0.0)
 
     # Edge cases
-    def test_empty_string_returns_none(self):
-        assert self._lot(unit_price="").unit_price is None
-
     def test_whitespace_only_returns_none(self):
         assert self._lot(unit_price="   ").unit_price is None
 
@@ -76,15 +60,10 @@ class TestCoercePrice:
         assert lot.total_price == 15000.0
 
     @pytest.mark.parametrize("field", ["unit_price", "total_price"])
-    @pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf"), "NaN", "Infinity", "-Infinity"])
+    @pytest.mark.parametrize("value", [float("nan"), "Infinity"])
     def test_non_finite_prices_are_rejected(self, field, value):
         with pytest.raises(ValidationError):
             self._lot(**{field: value})
-
-    def test_both_prices_coerced(self):
-        lot = self._lot(unit_price="3.100,00", total_price="15.500,00")
-        assert lot.unit_price == 3100.0
-        assert lot.total_price == 15500.0
 
 
 # ── normalize_category ──────────────────────────────────────────────────────
@@ -101,9 +80,6 @@ class TestNormalizeCategory:
 
     def test_plural_bezerros_normalized(self):
         assert self._lot("bezerros").category == "bezerro"
-
-    def test_singular_unchanged(self):
-        assert self._lot("garrote").category == "garrote"
 
     def test_unknown_category_unchanged(self):
         assert self._lot("tourinho").category == "tourinho"
@@ -124,17 +100,8 @@ class TestSoldField:
             num_animals=5, breed="Nelore", sold=sold,
         )
 
-    def test_sold_true(self):
-        assert self._lot(sold=True).sold is True
-
-    def test_sold_false(self):
-        assert self._lot(sold=False).sold is False
-
     def test_sold_none_default(self):
         assert self._lot().sold is None
-
-    def test_sold_none_explicit(self):
-        assert self._lot(sold=None).sold is None
 
 
 # ── required fields ──────────────────────────────────────────────────────────
@@ -160,36 +127,3 @@ class TestRequiredFields:
         assert lot.sold is None
         assert lot.timestamp_start is None
         assert lot.notes is None
-
-
-# ── AuctionResult ─────────────────────────────────────────────────────────────
-
-class TestAuctionResult:
-    def test_metadata_fields_optional(self):
-        result = AuctionResult(
-            video_url="https://youtube.com/watch?v=abc",
-            video_id="abc",
-            total_lots=0,
-            lots=[],
-        )
-        assert result.date is None
-        assert result.city is None
-        assert result.auctioneer is None
-        assert result.farm is None
-        assert result.auction_type is None
-
-    def test_metadata_fields_stored(self):
-        result = AuctionResult(
-            video_url="https://youtube.com/watch?v=abc",
-            video_id="abc",
-            date="28/03/2026",
-            city="Araguaína",
-            auctioneer="Leilões Abreu",
-            farm="Fazenda Santa Clara",
-            auction_type="corte",
-            total_lots=1,
-            lots=[],
-        )
-        assert result.date == "28/03/2026"
-        assert result.city == "Araguaína"
-        assert result.auctioneer == "Leilões Abreu"

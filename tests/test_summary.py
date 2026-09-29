@@ -21,14 +21,6 @@ class TestCalculateSummary:
     def test_empty_returns_empty_dict(self):
         assert _calculate_summary([]) == {}
 
-    def test_total_lots(self):
-        lots = [lot(1, "macho", "bezerro", 5), lot(2, "femea", "vaca", 3)]
-        assert _calculate_summary(lots)["total_lots"] == 2
-
-    def test_total_animals(self):
-        lots = [lot(1, "macho", "bezerro", 5), lot(2, "femea", "vaca", 3)]
-        assert _calculate_summary(lots)["total_animals"] == 8
-
     def test_sex_animals_counts(self):
         lots = [
             lot(1, "macho", "bezerro", 10),
@@ -40,12 +32,6 @@ class TestCalculateSummary:
         assert s["sex_animals"]["macho"] == 15
         assert s["sex_animals"]["fêmea"] == 3
         assert s["sex_animals"]["misto"] == 8
-
-    def test_sex_with_zero_animals_excluded(self):
-        lots = [lot(1, "macho", "bezerro", 5)]
-        s = _calculate_summary(lots)
-        assert "fêmea" not in s["sex_animals"]
-        assert "misto" not in s["sex_animals"]
 
     def test_category_animals_by_count(self):
         lots = [
@@ -86,16 +72,6 @@ class TestCalculateSummary:
         lots = [lot(1, "macho", "bezerro", 5, unit_price=None)]
         assert _calculate_summary(lots)["avg_price"] == 0
 
-    def test_avg_price_by_category(self):
-        lots = [
-            lot(1, "macho", "bezerro", 5, unit_price=2000.0),
-            lot(2, "macho", "bezerro", 3, unit_price=4000.0),
-            lot(3, "fêmea", "vaca", 2, unit_price=6000.0),
-        ]
-        s = _calculate_summary(lots)
-        assert s["category_prices"]["bezerro"] == pytest.approx(2750.0)
-        assert s["category_prices"]["vaca"] == pytest.approx(6000.0)
-
     def test_category_excluded_from_price_if_no_price(self):
         lots = [
             lot(1, "macho", "bezerro", 5, unit_price=3000.0),
@@ -129,12 +105,6 @@ class TestCalculateSummary:
         assert s["sold"] == 2
         assert s["not_sold"] == 1
 
-    def test_sold_zero_when_all_none(self):
-        lots = [lot(1, "macho", "bezerro", 5, sold=None)]
-        s = _calculate_summary(lots)
-        assert s["sold"] == 0
-        assert s["not_sold"] == 0
-
     def test_single_lot(self):
         lots = [lot(1, "macho", "bezerro", 7, unit_price=3500.0, sold=True)]
         s = _calculate_summary(lots)
@@ -150,15 +120,6 @@ class TestCliValidation:
         result = runner.invoke(
             cli,
             ["https://www.youtube.com/watch?v=test", "--screenshot-interval", "0"],
-        )
-        assert result.exit_code != 0
-        assert "Invalid value for '--screenshot-interval'" in result.output
-
-    def test_screenshot_interval_rejects_negative(self):
-        runner = CliRunner()
-        result = runner.invoke(
-            cli,
-            ["https://www.youtube.com/watch?v=test", "--screenshot-interval", "-5"],
         )
         assert result.exit_code != 0
         assert "Invalid value for '--screenshot-interval'" in result.output

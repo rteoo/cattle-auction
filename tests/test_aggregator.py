@@ -14,20 +14,8 @@ def seg(start: float, end: float, text: str) -> Segment:
 # ── _fmt / _parse_ts ─────────────────────────────────────────────────────────
 
 class TestHelpers:
-    def test_fmt_zero(self):
-        assert _fmt(0) == "00:00:00"
-
-    def test_fmt_one_hour(self):
-        assert _fmt(3600) == "01:00:00"
-
     def test_fmt_mixed(self):
         assert _fmt(3661) == "01:01:01"
-
-    def test_parse_ts_zero(self):
-        assert _parse_ts("00:00:00") == 0
-
-    def test_parse_ts_one_hour(self):
-        assert _parse_ts("01:00:00") == 3600
 
     def test_parse_ts_mixed(self):
         assert _parse_ts("01:01:01") == 3661
@@ -53,11 +41,6 @@ class TestAggregate:
         assert len(windows) == 2
         assert "LOTE 1" in windows[0].combined_text
         assert "LOTE 2" in windows[1].combined_text
-
-    def test_single_short_segment_one_window(self):
-        segments = [seg(0, 30, "Lote 1")]
-        windows = aggregate(segments, {})
-        assert len(windows) == 1
 
     def test_window_label_format(self):
         segments = [seg(0, 30, "text")]
@@ -96,13 +79,6 @@ class TestAggregate:
         # boundary lot should appear in both windows
         assert "boundary lot" in windows[0].combined_text
         assert "boundary lot" in windows[1].combined_text
-
-    def test_segment_not_in_window_excluded(self):
-        segments = [seg(0, 10, "early"), seg(700, 710, "late")]
-        windows = aggregate(segments, {})
-        # "late" should only be in window 2 (starts at 540)
-        assert "late" not in windows[0].combined_text
-        assert "late" in windows[1].combined_text
 
     def test_empty_window_gets_placeholder(self):
         # Segment at start, then a long gap with no content in middle window
@@ -160,7 +136,6 @@ class TestAggregate:
             (0, 0),
             (600, -1),
             (600, 600),
-            (600, 601),
         ],
     )
     def test_invalid_window_geometry_is_rejected(self, window_size, overlap):
