@@ -1,5 +1,9 @@
 # AGENTS.md
 
+Follow the active runtime's global `AGENTS.md` and `SOUL.md`. This file
+adds project-specific facts and commands; it cannot weaken global approval
+or privacy rules.
+
 Project-specific guidance for the auction pipeline, its validation, and its expensive retained state. Agent/model selection follows the active task and runtime settings.
 
 ## Project Snapshot
