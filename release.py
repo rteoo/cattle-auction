@@ -179,11 +179,45 @@ def check_prerequisites(skip_github):
             error("gh CLI not found — install from https://cli.github.com/")
             sys.exit(1)
         if not run_ok([gh, "auth", "status"]):
-            info("gh auth status failed; continuing because gh release create may still work via available credentials")
-        else:
-            success("gh CLI authenticated")
+            # Failing here, before anything changes, beats a pushed tag with no release.
+            error("gh is not authenticated; run `gh auth login` or pass --no-github")
+            sys.exit(1)
+        success("gh CLI authenticated")
 
     return gh
+
+
+# ── Release gates ────────────────────────────────────────────────────────────
+
+def check_checkout(dry_run):
+    """A release commits and pushes main, so it starts only from a clean main that equals origin/main."""
+    step("Checking the checkout...")
+    branch = git("branch", "--show-current")
+    if branch != BRANCH:
+        error(f"on {branch or 'a detached HEAD'}; check out {BRANCH} first")
+        sys.exit(1)
+    if git("status", "--porcelain", "--untracked-files=no"):
+        error("the working tree has uncommitted changes; commit or stash them first")
+        sys.exit(1)
+    git("fetch", "--quiet", REMOTE, BRANCH)
+    if git("rev-parse", "HEAD") != git("rev-parse", f"{REMOTE}/{BRANCH}"):
+        error(f"{BRANCH} differs from {REMOTE}/{BRANCH}; run git pull --ff-only")
+        sys.exit(1)
+    success(f"clean {BRANCH}, equal to {REMOTE}/{BRANCH}" + (" (dry run)" if dry_run else ""))
+
+
+def confirm(tag, dry_run):
+    """Everything after this changes files, main, and origin: the person types the exact tag first."""
+    if dry_run:
+        return
+    if not sys.stdin.isatty():
+        error("a release needs a terminal to confirm it; run it interactively or use --dry-run")
+        sys.exit(1)
+    answer = input(f"\nThis will bump to {tag}, commit it on {BRANCH}, push {BRANCH} and the tag, "
+                   f"and publish the GitHub release. Type {tag} to confirm: ").strip()
+    if answer != tag:
+        error("not confirmed; nothing was changed")
+        sys.exit(1)
 
 
 # ── Working tree helpers ─────────────────────────────────────────────────────
@@ -642,8 +676,9 @@ def create_github_release(tag, release_notes, gh, dry_run):
         return
 
     import tempfile
-    notes_file = Path(tempfile.mktemp(suffix=".md"))
-    notes_file.write_text(release_notes, encoding="utf-8")
+    with tempfile.NamedTemporaryFile("w", suffix=".md", encoding="utf-8", delete=False) as handle:
+        handle.write(release_notes)  # mktemp() only named a file another process could create first
+    notes_file = Path(handle.name)
 
     try:
         run(
@@ -668,7 +703,9 @@ def main():
     args = parse_args()
 
     gh = check_prerequisites(args.no_github)
+    check_checkout(args.dry_run)
     version, tag, last_tag, commit_lines, real_commits = detect_version(args.version)
+    confirm(tag, args.dry_run)
     update_pyproject(version, args.dry_run)
 
     release_notes = build_release_notes(version, tag, last_tag, commit_lines, real_commits)
