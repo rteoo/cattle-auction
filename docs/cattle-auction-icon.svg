@@ -2,21 +2,21 @@
   <title>cattle-auction</title>
   <defs>
     <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#16408a"/>
-      <stop offset="0.5" stop-color="#0d2a62"/>
-      <stop offset="1" stop-color="#081a40"/>
+      <stop offset="0" stop-color="#000080"/>
+      <stop offset="0.5" stop-color="#000066"/>
+      <stop offset="1" stop-color="#000033"/>
     </linearGradient>
     <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0" stop-color="#ffffff" stop-opacity="0.12"/>
       <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
     </linearGradient>
     <linearGradient id="glyph" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#5ee7f5"/>
-      <stop offset="1" stop-color="#2a9df4"/>
+      <stop offset="0" stop-color="#F7F6F2"/>
+      <stop offset="1" stop-color="#AAB0FF"/>
     </linearGradient>
     <radialGradient id="halo" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0" stop-color="#ff8a2a" stop-opacity="0.45"/>
-      <stop offset="1" stop-color="#ff8a2a" stop-opacity="0"/>
+      <stop offset="0" stop-color="#FF8C00" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#FF8C00" stop-opacity="0"/>
     </radialGradient>
     <clipPath id="tile-clip">
       <rect x="64" y="64" width="896" height="896" rx="200"/>
@@ -26,7 +26,7 @@
   <!-- Tile: the same rounded slab, lit from above, as the sibling apps. -->
   <rect x="64" y="64" width="896" height="896" rx="200" fill="url(#tile)"/>
   <rect x="64" y="64" width="896" height="380" fill="url(#sheen)" clip-path="url(#tile-clip)"/>
-  <rect x="68" y="68" width="888" height="888" rx="196" fill="none" stroke="#5aa0ff" stroke-opacity="0.35" stroke-width="8"/>
+  <rect x="68" y="68" width="888" height="888" rx="196" fill="none" stroke="#7D86FF" stroke-opacity="0.35" stroke-width="8"/>
 
   <!-- Steer: horns rising from the crown, ears out to the sides, and a face
        that narrows before flaring into the muzzle. -->
@@ -38,7 +38,7 @@
         fill="none" stroke="url(#glyph)" stroke-width="64" stroke-linejoin="round"/>
 
   <!-- Inside: extracted lot rows; the warm one is the sold lot's hammer price. -->
-  <rect x="424" y="480" width="176" height="56" rx="28" fill="#bdf6ff" fill-opacity="0.9"/>
+  <rect x="424" y="480" width="176" height="56" rx="28" fill="#EEEEFF" fill-opacity="0.9"/>
   <ellipse cx="490" cy="616" rx="136" ry="80" fill="url(#halo)"/>
-  <rect x="424" y="588" width="132" height="56" rx="28" fill="#ff8a2a"/>
+  <rect x="424" y="588" width="132" height="56" rx="28" fill="#FF8C00"/>
 </svg>
