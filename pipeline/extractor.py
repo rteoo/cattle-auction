@@ -155,7 +155,7 @@ def extract_lots(
         client,
         system_prompt,
         windows,
-        extra={"verify_prompt": verify_prompt, "window_validation": 1},
+        extra={"verify_prompt": verify_prompt, "window_validation": 2},
     )
     cached = _load_cached_checkpoint(output_path, provenance, _load, "Lots", allow_legacy=False)
     try:
@@ -227,7 +227,10 @@ def extract_lots(
                 if l.lot_number in existing or _lot_has_window_support(l.lot_number, window)
             ]
             if not new_lots:
-                print("    All were unsupported new numbers; dropping the window's output.")
+                print("    All were unsupported new numbers; extraction must retry this window.")
+                record.update(status="rejected", error="All candidate lots lacked evidence in this window.")
+                failed_windows += 1
+                continue
 
         record["status"] = "complete" if new_lots else "empty"
         completed[i] = new_lots

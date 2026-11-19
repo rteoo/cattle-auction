@@ -600,6 +600,22 @@ class TestExtractLotsBurstGuard:
 
         assert [lot.lot_number for lot in lots] == list(range(1, 14))
 
+    def test_unsupported_burst_is_rejected_and_can_resume(self, tmp_path):
+        prompt = tmp_path / "prompt.txt"
+        prompt.write_text("extract", encoding="utf-8")
+        output = tmp_path / "lots.json"
+        windows = [_make_window(text="TELA: LOTE 42")]
+        unsupported = _SequenceClient([json.dumps([{"lot_number": n} for n in range(1, 14)])])
+
+        with pytest.raises(RuntimeError, match="1 of 1"):
+            extract_lots(windows, unsupported, prompt, output)
+
+        report = json.loads(output.with_suffix(".quality.json").read_text(encoding="utf-8"))
+        assert report["windows"][0]["status"] == "rejected"
+        assert not output.exists()
+        supported = _SequenceClient(['{"lots":[{"lot_number":42}]}'])
+        assert [lot.lot_number for lot in extract_lots(windows, supported, prompt, output)] == [42]
+
 
 class _FailingAfterFirstClient:
     def __init__(self, response: str):
