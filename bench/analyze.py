@@ -1,4 +1,4 @@
-"""Benchmark analysis for the two shipping models vs the Claude reference.
+"""Benchmark analysis for current and historical models vs the Claude reference.
 
 Produces three sections:
   1. Reference-based accuracy — lot coverage, category/sex/qty match,
@@ -21,11 +21,12 @@ MODELS = [
     # (display_name, directory_name, provider, input_price/M, output_price/M)
     ("GPT-6 Luna (low)", "gpt-6-luna__low", "openai", 0.10, 0.50),
     ("GPT-6 Luna (medium)", "gpt-6-luna__medium", "openai", 0.10, 0.50),
-    ("gemini-2.5-flash-lite-preview (default)",
+    ("gemini-2.5-flash-lite", "google_gemini-2.5-flash-lite", "openrouter", 0.10, 0.40),
+    ("gemini-2.5-flash-lite-preview",
      "google_gemini-2.5-flash-lite-preview-09-2025",
      "openrouter",
      0.10, 0.40),
-    ("gpt-4.1-mini (alternative)",
+    ("gpt-4.1-mini",
      "gpt-4.1-mini",
      "openai",
      0.40, 1.60),

@@ -1,6 +1,8 @@
 """Tests for extractor pure-logic functions: _parse_response, _merge, _validate_lots."""
 import json
 
+import httpx2
+import openai
 import pytest
 
 from models.lot import AuctionResult, Lot
@@ -17,6 +19,59 @@ from pipeline.extractor import (
     extract_metadata,
 )
 from pipeline.aggregator import Window
+
+
+@pytest.mark.parametrize(
+    ("provider", "host", "model", "effort", "finish_reason"),
+    [
+        ("openai", "api.openai.com", "gpt-6-luna", None, "stop"),
+        ("openai", "api.openai.com", "gpt-6-luna", "low", "stop"),
+        ("openai", "api.openai.com", "gpt-6-luna", None, "length"),
+        ("openrouter", "openrouter.ai", "google/gemini-2.5-flash-lite", None, "stop"),
+    ],
+)
+def test_sdk_sends_lot_extraction_request(monkeypatch, provider, host, model, effort, finish_reason):
+    content = '{"lots":[]}' if provider == "openai" else "[]"
+
+    def handle(request):
+        assert request.url.host == host
+        assert request.url.path.endswith("/chat/completions")
+        body = json.loads(request.content)
+        assert body["model"] == model
+        assert body["messages"][-1] == {"role": "user", "content": "Lote 42"}
+        if provider == "openai":
+            assert body["max_completion_tokens"] == 8192
+            assert body["reasoning_effort"] == (effort or "medium")
+            assert body["response_format"]["json_schema"]["strict"] is True
+            assert "max_tokens" not in body
+        else:
+            assert body["max_tokens"] == 4096
+            assert "response_format" not in body
+            assert "reasoning_effort" not in body
+        return httpx2.Response(200, json={
+            "id": "test-completion",
+            "object": "chat.completion",
+            "created": 0,
+            "model": model,
+            "choices": [
+                {"index": 0, "finish_reason": finish_reason, "message": {"role": "assistant", "content": content}},
+            ],
+            "usage": {"prompt_tokens": 12, "completion_tokens": 7, "total_tokens": 19},
+        })
+
+    sdk = openai.OpenAI
+    monkeypatch.delenv("OPENAI_BASE_URL", raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "offline-fixture")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "offline-fixture")
+    with httpx2.Client(transport=httpx2.MockTransport(handle)) as http_client:
+        monkeypatch.setattr(openai, "OpenAI", lambda **kwargs: sdk(http_client=http_client, **kwargs))
+        client = LLMClient(provider, reasoning_effort=effort)
+        if finish_reason == "length":
+            with pytest.raises(ValueError, match="complete response.*length"):
+                client.complete_lots("Return JSON.", "Lote 42")
+        else:
+            assert _parse_response(client.complete_lots("Return JSON.", "Lote 42")) == []
+        assert (client.input_tokens, client.output_tokens, client.n_calls) == (12, 7, 1)
 
 
 # ── _validate_lots ───────────────────────────────────────────────────────────

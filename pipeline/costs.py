@@ -11,15 +11,15 @@ for budgeting.
 """
 
 # Keyed by the model id passed to LLMClient (see _DEFAULT_MODELS in
-# pipeline/extractor.py for the two supported extraction models).
+# pipeline/extractor.py for the current extraction defaults).
 PRICE_TABLE: dict[str, dict[str, float]] = {
+    "gpt-6-luna": {"input": 0.10, "output": 0.50},
+    "google/gemini-2.5-flash-lite": {"input": 0.10, "output": 0.40},
     "google/gemini-2.5-flash-lite-preview-09-2025": {"input": 0.10, "output": 0.40},
     "gpt-4.1-mini": {"input": 0.40, "output": 1.60},
 }
 
-# Used when `model` isn't in PRICE_TABLE (e.g. a new/renamed model). Set to
-# the more expensive of the two known models so an unrecognized model biases
-# toward overestimating cost rather than silently underestimating it.
+# Historical GPT-4.1 Mini rates used as a placeholder for unpriced model IDs.
 _FALLBACK_PRICES: dict[str, float] = {"input": 0.40, "output": 1.60}
 
 # Groq Whisper Large v3 Turbo pricing (see pipeline/transcriber.py docstring).

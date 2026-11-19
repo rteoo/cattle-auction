@@ -4,20 +4,20 @@ version = "1.4.0"
 description = "Extract lot data from Brazilian cattle auction videos"
 requires-python = ">=3.11"
 dependencies = [
-    "yt-dlp>=2024.0.0",
-    "openai>=1.0.0",
-    "groq>=0.11.0",
-    "pydantic>=2.0.0",
-    "rich>=13.0.0",
-    "click>=8.0.0",
-    "python-dotenv>=1.0.0",
+    "yt-dlp>=2026.10.26",
+    "openai>=3.52.0",
+    "groq>=1.7.0",
+    "pydantic>=2.14.3",
+    "rich>=15.0.0",
+    "click>=8.5.1",
+    "python-dotenv>=1.2.4",
+    # RapidOCR already installs opencv-python. Both OpenCV wheels export cv2.
     "rapidocr-onnxruntime>=1.4.4",
-    "opencv-python-headless>=4.5",
 ]
 
 [project.optional-dependencies]
 # Apple Silicon only — install with: uv sync --extra local
-local = ["mlx-whisper>=0.4.0"]
+local = ["mlx-whisper>=0.4.3; sys_platform == 'darwin' and platform_machine == 'arm64'"]
 
 [build-system]
 requires = ["hatchling"]
@@ -33,16 +33,7 @@ prompts = "prompts"
 [tool.hatch.build.targets.sdist]
 exclude = ["/.claude", "/.clawpatch"]
 
-[tool.uv]
-# rapidocr-onnxruntime depends on opencv-python, but opencv-python-headless
-# is a compatible drop-in that avoids GUI lib conflicts on macOS.
-# This override tells uv to satisfy opencv-python requirements with
-# opencv-python-headless instead.
-constraint-dependencies = [
-    "opencv-python-headless>=4.5",
-]
-
 [dependency-groups]
 dev = [
-    "pytest>=9.0.2",
+    "pytest>=9.2.0",
 ]

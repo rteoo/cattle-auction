@@ -15,23 +15,17 @@ from pipeline.checkpoint import write_json
 _METADATA_WINDOWS = 3
 
 
-# Supported models — picked via benchmark (5 videos × 10 models) against a
-# human reference. See bench/ for the analysis. Two options:
-#
-#   "openrouter" (default): Gemini 2.5 Flash-Lite Preview — best speed/cost
-#                           (~$0.05/video, 13-24s, 92-100% lot coverage).
-#   "openai"      (alt):    GPT-4.1 Mini — best accuracy (100% coverage,
-#                           100% categorical match, 0.1% price MAPE, ~$0.13/video).
 _DEFAULT_MODELS = {
-    "openrouter": "google/gemini-2.5-flash-lite-preview-09-2025",
-    "openai": "gpt-4.1-mini",
+    "openai": "gpt-6-luna",
+    "openrouter": "google/gemini-2.5-flash-lite",
 }
 
 
 class LLMClient:
     def __init__(self, provider: str, model: str | None = None, *, reasoning_effort: str | None = None):
         self.provider = provider
-        self.model = model or _DEFAULT_MODELS[provider]
+        provider_default = default_model(provider)
+        self.model = model or provider_default
         self.reasoning_effort = reasoning_effort
         # Running token-usage counters. Callers can read these after
         # processing (e.g. to estimate $ cost from published per-token prices).
@@ -51,12 +45,6 @@ class LLMClient:
             self._client = openai.OpenAI(
                 api_key=api_key,
                 base_url="https://openrouter.ai/api/v1",
-            )
-
-        else:
-            raise ValueError(
-                f"Unknown provider: {provider!r}. Use 'openrouter' (default, Gemini 2.5 "
-                f"Flash-Lite) or 'openai' (alt, GPT-4.1 Mini)."
             )
 
     def complete_lots(self, system: str, user: str) -> str:
@@ -122,7 +110,10 @@ class LLMClient:
 
     def completion_options(self) -> dict:
         if self.provider == "openai" and (self.model == "gpt-6-luna" or self.reasoning_effort):
+            # This cap includes reasoning tokens and visible output.
             return {"max_completion_tokens": 8192, "reasoning_effort": self.reasoning_effort or "medium"}
+        if self.provider == "openai":
+            return {"max_completion_tokens": 4096}
         return {"max_tokens": 4096}
 
 

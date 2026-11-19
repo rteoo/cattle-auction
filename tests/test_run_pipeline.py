@@ -59,7 +59,6 @@ def _install_stubs(monkeypatch, tmp_path, *, segments, duration=3600.0):
 
     monkeypatch.setattr(main.aggregator, "aggregate", fake_aggregate)
     monkeypatch.setattr(main.extractor, "LLMClient", _FakeClient)
-    monkeypatch.setattr(main.extractor, "default_model", lambda provider: "gpt-4.1-mini")
     monkeypatch.setattr(main.extractor, "extract_lots", lambda *a, **k: [])
     monkeypatch.setattr(main.extractor, "extract_metadata", lambda *a, **k: {})
 
@@ -117,9 +116,8 @@ def test_cost_bills_transcription_when_whisper_actually_ran(monkeypatch, tmp_pat
 
     result = _run(tmp_path)
 
-    # 1h of Groq audio at $0.04/h, plus 1M in + 0.5M out on gpt-4.1-mini
-    # ($0.40 + $0.80).
-    assert result.cost_usd == round(0.04 + 0.40 + 0.80, 6)
+    # 1h of Groq audio at $0.04/h, plus 1M in + 0.5M out on GPT-6 Luna.
+    assert result.cost_usd == round(0.04 + 0.10 + 0.25, 6)
 
 
 def test_cached_transcript_is_not_billed_again(monkeypatch, tmp_path):
@@ -136,7 +134,7 @@ def test_cached_transcript_is_not_billed_again(monkeypatch, tmp_path):
 
     result = _run(tmp_path)
 
-    assert result.cost_usd == round(0.40 + 0.80, 6)
+    assert result.cost_usd == round(0.10 + 0.25, 6)
 
 
 def test_legacy_video_info_duration_is_derived_for_fresh_groq_transcription(monkeypatch, tmp_path):
@@ -155,7 +153,7 @@ def test_legacy_video_info_duration_is_derived_for_fresh_groq_transcription(monk
     result = _run(tmp_path)
 
     # 30 minutes of fresh Groq transcription costs $0.02.
-    assert result.cost_usd == round(0.02 + 0.40 + 0.80, 6)
+    assert result.cost_usd == round(0.02 + 0.10 + 0.25, 6)
 
 
 def test_stale_transcript_provenance_is_billed_as_a_fresh_groq_run(monkeypatch, tmp_path):
@@ -176,4 +174,4 @@ def test_stale_transcript_provenance_is_billed_as_a_fresh_groq_run(monkeypatch, 
 
     result = _run(tmp_path)
 
-    assert result.cost_usd == round(0.04 + 0.40 + 0.80, 6)
+    assert result.cost_usd == round(0.04 + 0.10 + 0.25, 6)

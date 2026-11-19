@@ -18,11 +18,9 @@ VIDEOS = [
 ]
 
 MODELS = [
-    # The two options shipped in production (see pipeline/extractor.py
-    # `_DEFAULT_MODELS`). Reference is Claude running this conversation —
-    # produced manually, saved in bench_results/<video>/REFERENCE_claude/lots.json.
-    ("openrouter", "google/gemini-2.5-flash-lite-preview-09-2025", None),
-    ("openai", "gpt-4.1-mini", None),
+    # Production defaults. Luna's implicit effort resolves to medium.
+    ("openai", "gpt-6-luna", None),
+    ("openrouter", "google/gemini-2.5-flash-lite", None),
 ]
 
 MAX_PARALLEL = 4  # small matrix (10 runs) — low concurrency is fine

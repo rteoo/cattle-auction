@@ -41,8 +41,10 @@ summary table, together with the run's estimated cost.
 ## Quick start
 
 cattle-auction runs from source; there is no packaged release. It needs
-Python 3.11 or later, [uv](https://docs.astral.sh/uv/), `ffmpeg`, and the `deno`
-runtime that `yt-dlp` uses for YouTube downloads:
+Python 3.11 or later, [uv](https://docs.astral.sh/uv/), `ffmpeg`, and
+[Deno 2.3.0 or newer](https://github.com/yt-dlp/yt-dlp/wiki/EJS) for YouTube
+downloads. The upstream OCR package declares support through Python 3.12.
+On macOS, the locked OCR stack requires Apple Silicon and macOS 14 or newer.
 
 ```bash
 # macOS
@@ -64,12 +66,12 @@ uv sync --frozen --extra local    # optional: MLX Whisper, Apple Silicon only
 ## First use
 
 1. Create a `.env` file in the repository root with the keys for the services
-   you will use. The default run needs `OPENROUTER_API_KEY` and `GROQ_API_KEY`:
+   you will use. The default run needs `OPENAI_API_KEY` and `GROQ_API_KEY`:
 
    ```bash
-   OPENROUTER_API_KEY=sk-or-...
+   OPENAI_API_KEY=sk-...
    GROQ_API_KEY=gsk-...
-   OPENAI_API_KEY=sk-...        # only with --provider openai
+   OPENROUTER_API_KEY=sk-or-... # only with --provider openrouter
    ```
 
 2. Run the pipeline on one auction:
@@ -115,7 +117,7 @@ uv run --frozen python main.py --batch-file links.txt --batch-name maio-2026 [OP
 
 | Option | Default | Effect |
 | --- | --- | --- |
-| `--provider` | `openrouter` | LLM provider: `openrouter` or `openai` |
+| `--provider` | `openai` | `openai` for GPT-6 Luna or `openrouter` for Gemini 2.5 Flash-Lite |
 | `--transcriber` | `groq` | Transcription backend: `groq`, `mlx`, or `cpp` |
 | `--whisper-model` | `medium` | Model size for `mlx` and `cpp`: `tiny`, `base`, `small`, `medium`, `large-v3` |
 | `--cpp-model` | auto | Path to a ggml model file for whisper.cpp |
@@ -202,12 +204,14 @@ brew install whisper-cpp
 whisper-cpp-download-ggml-model medium
 ```
 
-The two extraction models were chosen by benchmarking against a human reference:
+| Provider | Model | Standard input per 1M tokens | Standard output per 1M tokens |
+| --- | --- | ---: | ---: |
+| `openai` (default) | `gpt-6-luna` | US$0.10 | US$0.50 |
+| `openrouter` | `google/gemini-2.5-flash-lite` | US$0.10 | US$0.40 |
 
-| Provider | Model | Cost per video | Speed | Lot coverage | Price error (MAPE) |
-| --- | --- | ---: | ---: | ---: | ---: |
-| `openrouter` (default) | `google/gemini-2.5-flash-lite-preview-09-2025` | ~US$0.05 | 13–24 s | 92–100% | 1.9–2.0% |
-| `openai` | `gpt-4.1-mini` | ~US$0.13 | 31 s | 100% | 0.1% |
+Luna uses medium reasoning effort. The run estimates token costs at standard
+uncached rates. See [OpenAI pricing](https://developers.openai.com/api/docs/pricing)
+and [OpenRouter pricing](https://openrouter.ai/google/gemini-2.5-flash-lite).
 
 Measured on a 5-hour video on an Apple Silicon M2, Groq transcribes in about 1–2
 minutes and local medium-model backends in about 20–40. Screenshots take 2–3

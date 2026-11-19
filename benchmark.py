@@ -3,7 +3,7 @@ Benchmark script: runs extraction with multiple LLM models on the same video
 and compares results side-by-side.
 
 Usage:
-    uv run python benchmark.py <youtube_url>
+    uv run --frozen python benchmark.py <youtube_url>
 """
 
 import json
@@ -21,10 +21,7 @@ from pipeline import transcriber as transcriber_mod
 
 PROMPTS_DIR = Path(__file__).parent / "prompts"
 
-MODELS = [
-    ("openrouter", "google/gemini-2.5-flash-lite-preview-09-2025"),
-    ("openai", "gpt-4.1-mini"),
-]
+MODELS = [(provider, extractor.default_model(provider)) for provider in ("openai", "openrouter")]
 
 def download_small(url: str, output_dir: Path, video_id: str) -> tuple[Path, Path]:
     """Download video at 480p max (smaller/faster) and extract audio."""
@@ -316,7 +313,7 @@ def print_comparison(results: list[dict]):
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: uv run python benchmark.py <youtube_url>")
+        print("Usage: uv run --frozen python benchmark.py <youtube_url>")
         sys.exit(1)
 
     url = sys.argv[1]
