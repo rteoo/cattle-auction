@@ -116,13 +116,14 @@ class TestRequiredFields:
         with pytest.raises(ValidationError):
             Lot(sex="macho", category="bezerro", num_animals=5, breed="Nelore")
 
-    def test_missing_sex_raises(self):
-        with pytest.raises(ValidationError):
-            Lot(lot_number=1, category="bezerro", num_animals=5, breed="Nelore")
+    def test_unknown_attributes_are_nullable(self):
+        lot = Lot(lot_number=0)
+        assert (lot.sex, lot.category, lot.num_animals, lot.breed) == (None, None, None, None)
 
-    def test_missing_num_animals_raises(self):
+    @pytest.mark.parametrize("fields", [{"lot_number": -1}, {"lot_number": 0, "num_animals": 0}])
+    def test_invalid_identity_or_count_is_rejected(self, fields):
         with pytest.raises(ValidationError):
-            Lot(lot_number=1, sex="macho", category="bezerro", breed="Nelore")
+            Lot(**fields)
 
     def test_optional_fields_default_to_none(self):
         lot = Lot(lot_number=1, sex="macho", category="bezerro", num_animals=5, breed="Nelore")

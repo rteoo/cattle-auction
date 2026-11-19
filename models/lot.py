@@ -2,7 +2,7 @@ import re
 from decimal import Decimal, InvalidOperation
 from typing import Literal
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 
 _CATEGORY_PLURAL_MAP = {
@@ -64,12 +64,12 @@ def coerce_price_value(value: object) -> float | None:
 
 
 class Lot(BaseModel):
-    lot_number: int
-    sex: str  # macho, fêmea, misto
-    category: str  # bezerro, bezerra, garrote, novilha, boi, vaca, touro, etc.
-    num_animals: int
+    lot_number: int = Field(ge=0)
+    sex: str | None = None  # macho, fêmea, misto
+    category: str | None = None
+    num_animals: int | None = Field(default=None, gt=0)
     age_months: int | None = None
-    breed: str  # Nelore, Anelorado, Mestiço, Cruzado, etc.
+    breed: str | None = None
     unit_price: float | None = None
     total_price: float | None = None
     sold: bool | None = None  # True = arrematado, False = não vendido/retirado, None = indefinido
