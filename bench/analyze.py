@@ -8,6 +8,7 @@ Produces three sections:
 """
 import json
 import math
+import re
 import statistics
 from pathlib import Path
 
@@ -18,6 +19,8 @@ VIDEOS = ["TTNfx03Ubr8", "VDzRLEMUagA", "ZCwxnhUZjQM", "sKmUHExf464", "vWs74eYdy
 
 MODELS = [
     # (display_name, directory_name, provider, input_price/M, output_price/M)
+    ("GPT-6 Luna (low)", "gpt-6-luna__low", "openai", 0.10, 0.50),
+    ("GPT-6 Luna (medium)", "gpt-6-luna__medium", "openai", 0.10, 0.50),
     ("gemini-2.5-flash-lite-preview (default)",
      "google_gemini-2.5-flash-lite-preview-09-2025",
      "openrouter",
@@ -62,9 +65,23 @@ def load_json(path: Path) -> dict | list | None:
     if not path.exists():
         return None
     try:
-        return json.loads(path.read_text())
-    except json.JSONDecodeError:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
         return None
+
+
+def _load_run(directory: Path) -> tuple[dict | None, list | None]:
+    latest = load_json(directory / "latest.json")
+    run_id = latest.get("run_id") if isinstance(latest, dict) else None
+    if isinstance(run_id, str) and re.fullmatch(r"[a-f0-9]{64}", run_id):
+        directory /= run_id
+    elif (directory / "latest.json").exists():
+        return None, None
+    summary = load_json(directory / "summary.json")
+    lots = load_json(directory / "lots.json")
+    if run_id and (not isinstance(summary, dict) or summary.get("run_id") != run_id):
+        return None, None
+    return summary if isinstance(summary, dict) else None, lots if isinstance(lots, list) else None
 
 
 def compare(ref: list[dict], model_lots: list[dict]) -> dict:
@@ -75,14 +92,28 @@ def compare(ref: list[dict], model_lots: list[dict]) -> dict:
     missing = set(ref_by_num) - set(m_by_num)
     extra = set(m_by_num) - set(ref_by_num)
 
-    # MAPE on matched lots with both prices set
+    known_status = {n for n, lot in ref_by_num.items() if isinstance(lot.get("sold"), bool)}
+    status_matches = sum(
+        m_by_num[n].get("sold") is ref_by_num[n]["sold"] for n in matched & known_status
+    )
+    expected_prices = {
+        n for n, lot in ref_by_num.items()
+        if lot.get("sold") is not False and _is_valid_price(lot.get("unit_price"))
+    }
+    hammer_prices = {n for n in expected_prices if ref_by_num[n].get("sold") is True}
+    comparable = set()
     errs = []
-    for n in matched:
-        rp, mp = ref_by_num[n].get("unit_price"), m_by_num[n].get("unit_price")
-        if _is_valid_price(rp) and _is_valid_price(mp):
-            e = abs(float(mp) - float(rp)) / float(rp)
-            if math.isfinite(e):
-                errs.append(e)
+    for n in matched & expected_prices:
+        candidate = m_by_num[n]
+        rp, mp = ref_by_num[n]["unit_price"], candidate.get("unit_price")
+        if (not _is_valid_price(mp) or candidate.get("price_needs_review")
+                or candidate.get("sold") is False
+                or (n in hammer_prices and candidate.get("sold") is not True)):
+            continue
+        comparable.add(n)
+        e = abs(float(mp) - float(rp)) / float(rp)
+        if math.isfinite(e):
+            errs.append(e)
 
     cat_ok = sum(1 for n in matched
                  if (m_by_num[n].get("category") or "").lower() ==
@@ -95,11 +126,18 @@ def compare(ref: list[dict], model_lots: list[dict]) -> dict:
 
     return {
         "ref_n": len(ref_by_num),
-        "model_n": len(m_by_num),
+        "model_n": len(model_lots),
         "matched": len(matched),
         "missing": len(missing),
-        "extra": len(extra),
+        "extra": len(extra) + len(model_lots) - len(m_by_num),
+        "precision": len(matched) / len(model_lots) if model_lots else 0,
         "coverage": len(matched) / len(ref_by_num) if ref_by_num else 0,
+        "sold_status_accuracy": status_matches / len(known_status) if known_status else None,
+        "price_count": len(comparable),
+        "price_expected": len(expected_prices),
+        "hammer_price_count": len(comparable & hammer_prices),
+        "hammer_price_expected": len(hammer_prices),
+        "mape_n": len(errs),
         "category_match": cat_ok / len(matched) if matched else 0,
         "sex_match": sex_ok / len(matched) if matched else 0,
         "qty_match": qty_ok / len(matched) if matched else 0,
@@ -112,8 +150,7 @@ def main():
     runs = {}
     for v in VIDEOS:
         for (disp, dirname, provider, in_price, out_price) in MODELS:
-            s = load_json(RESULTS / v / dirname / "summary.json")
-            l = load_json(RESULTS / v / dirname / "lots.json")
+            s, l = _load_run(RESULTS / v / dirname)
             runs[(v, dirname)] = (s, l, in_price, out_price)
 
     # ── Section 1: Reference-based accuracy ───────────────────────────
@@ -125,19 +162,31 @@ def main():
         if not ref:
             continue
         print(f"\n  Video: {v}   (reference: {len(ref)} lots)")
-        print(f"  {'Model':<44} {'N':>3} {'Match':>5} {'Miss':>4} {'Extra':>5} {'Cov':>5} {'Cat':>5} {'Sex':>5} {'Qty':>5} {'MAPE':>7}")
-        print(f"  {'-'*44} {'-'*3} {'-'*5} {'-'*4} {'-'*5} {'-'*5} {'-'*5} {'-'*5} {'-'*5} {'-'*7}")
+        manifests = {
+            json.dumps(summary["inputs"], sort_keys=True)
+            for _, dirname, *_ in MODELS
+            if (summary := runs[(v, dirname)][0])
+            and summary.get("status") == "ok" and isinstance(summary.get("inputs"), dict)
+        }
+        if len(manifests) > 1:
+            print("  Runs used different inputs or parser versions. Replay before comparing settings.")
+        print(f"  {'Model':<44} {'N':>3} {'Miss':>4} {'Extra':>5} {'Prec':>5} {'Recall':>6} {'Status':>6} "
+              f"{'Price n/N':>9} {'Hammer n/N':>10} {'Cat':>5} {'Sex':>5} {'Qty':>5} {'MAPE (n)':>13}")
         for (disp, dirname, *_rest) in MODELS:
             (s, lots, *_) = runs[(v, dirname)]
-            if not lots or not s or s.get("status") != "ok":
+            if lots is None or not s or s.get("status") != "ok":
                 print(f"  {disp[:44]:<44} {'—'}")
                 continue
             c = compare(ref, lots)
-            mape = f"{c['mape']*100:.1f}%" if c['mape'] is not None else "   —"
+            mape = f"{c['mape']:.1%} ({c['mape_n']})" if c['mape'] is not None else "—"
+            status = f"{c['sold_status_accuracy']:.0%}" if c["sold_status_accuracy"] is not None else "—"
+            price_coverage = f"{c['price_count']}/{c['price_expected']}"
+            hammer_coverage = f"{c['hammer_price_count']}/{c['hammer_price_expected']}"
             print(f"  {disp[:44]:<44} "
-                  f"{c['model_n']:>3} {c['matched']:>5} {c['missing']:>4} {c['extra']:>5} "
-                  f"{c['coverage']:>4.0%} {c['category_match']:>4.0%} "
-                  f"{c['sex_match']:>4.0%} {c['qty_match']:>4.0%} {mape:>7}")
+                  f"{c['model_n']:>3} {c['missing']:>4} {c['extra']:>5} "
+                  f"{c['precision']:>5.0%} {c['coverage']:>6.0%} {status:>6} "
+                  f"{price_coverage:>9} {hammer_coverage:>10} {c['category_match']:>5.0%} "
+                  f"{c['sex_match']:>5.0%} {c['qty_match']:>5.0%} {mape:>13}")
 
     # ── Section 2: Raw extraction stats ───────────────────────────────
     print("\n\n" + "=" * 120)
@@ -202,7 +251,7 @@ def main():
     for (disp, dirname, provider, in_price, out_price) in MODELS:
         print(f"\n  {disp}  [{provider}, ${in_price}/M in · ${out_price}/M out]")
         print(f"    {'Video':<14} {'Calls':>6} {'Input tok':>11} {'Output tok':>11} {'Cost':>9}")
-        total_in, total_out, total_cost = 0, 0, 0.0
+        total_in, total_out, total_cost, completed = 0, 0, 0.0, 0
         for v in VIDEOS:
             (s, lots, *_) = runs[(v, dirname)]
             if not s or s.get("status") != "ok":
@@ -214,11 +263,13 @@ def main():
             total_in += in_t
             total_out += out_t
             total_cost += cost
+            completed += 1
             print(f"    {v[:14]:<14} {s.get('llm_calls', '—'):>6} {in_t:>11,} {out_t:>11,} ${cost:>7.4f}")
-        avg = total_cost / len(VIDEOS)
         print(f"    {'─'*60}")
         print(f"    {'TOTAL':<14} {'':>6} {total_in:>11,} {total_out:>11,} ${total_cost:>7.4f}")
-        print(f"    {'AVG/video':<14} {'':>6} {total_in//len(VIDEOS):>11,} {total_out//len(VIDEOS):>11,} ${avg:>7.4f}")
+        if completed:
+            print(f"    {'AVG/video':<14} {'':>6} {total_in//completed:>11,} "
+                  f"{total_out//completed:>11,} ${total_cost/completed:>7.4f}")
 
 
 if __name__ == "__main__":
