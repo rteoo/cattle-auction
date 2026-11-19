@@ -26,6 +26,20 @@ class TestValidateLots:
         base.update(kwargs)
         return base
 
+    def test_ambiguous_small_json_number_preserves_lot_and_flags_price(self):
+        (lot,) = _validate_lots([self._valid(unit_price=5.16, raw_price=None)])
+        assert lot.unit_price is None
+        assert lot.raw_price == "5.16"
+        assert lot.price_needs_review
+
+    def test_explicit_price_basis_preserves_arroba_evidence(self):
+        (lot,) = _validate_lots([self._valid(
+            unit_price=315, raw_price="R$ 315,00", price_basis="per_arroba",
+        )])
+        assert lot.unit_price is None
+        assert lot.raw_price == "R$ 315,00"
+        assert lot.price_basis == "per_arroba"
+
     def test_mixed_valid_and_invalid(self):
         items = [self._valid(lot_number=1), {"bad": "data"}, self._valid(lot_number=2)]
         lots = _validate_lots(items)
