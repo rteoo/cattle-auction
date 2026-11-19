@@ -211,6 +211,16 @@ depend on the network.
 
 ## Resume and checkpoints
 
+For a paid extraction-only benchmark on cached transcript and OCR, compare
+GPT-6 Luna reasoning levels on the two included reference auctions:
+
+```bash
+uv run --frozen python bench/orchestrate.py --luna --video VDzRLEMUagA --video sKmUHExf464
+uv run --frozen python bench/analyze.py
+```
+
+Read hammer-price coverage and its sample count alongside price error.
+
 Each stage saves its result under `output/<video_id>/`. Downloads are reused
 once complete. The transcript, screenshot, OCR, lot, and metadata checkpoints
 also record the inputs that produced them, so a rerun recomputes a stage when

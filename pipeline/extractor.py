@@ -27,9 +27,10 @@ _DEFAULT_MODELS = {
 
 
 class LLMClient:
-    def __init__(self, provider: str, model: str | None = None):
+    def __init__(self, provider: str, model: str | None = None, *, reasoning_effort: str | None = None):
         self.provider = provider
         self.model = model or _DEFAULT_MODELS[provider]
+        self.reasoning_effort = reasoning_effort
         # Running token-usage counters. Callers can read these after
         # processing (e.g. to estimate $ cost from published per-token prices).
         self.input_tokens = 0
@@ -64,7 +65,7 @@ class LLMClient:
             try:
                 resp = self._client.chat.completions.create(
                     model=self.model,
-                    max_tokens=4096,
+                    **self.completion_options(),
                     messages=[
                         {"role": "system", "content": system},
                         {"role": "user", "content": user},
@@ -84,6 +85,11 @@ class LLMClient:
                     _time.sleep(wait)
                     continue
                 raise
+
+    def completion_options(self) -> dict:
+        if self.provider == "openai" and (self.model == "gpt-6-luna" or self.reasoning_effort):
+            return {"max_completion_tokens": 8192, "reasoning_effort": self.reasoning_effort or "medium"}
+        return {"max_tokens": 4096}
 
 
 # Heuristic for catching runaway hallucinations in a single window.
@@ -643,6 +649,7 @@ def _stage_provenance(
         "client": {
             "provider": getattr(client, "provider", type(client).__name__),
             "model": getattr(client, "model", None),
+            "request_options": getattr(client, "completion_options", dict)(),
         },
         "prompt": prompt,
         "windows": [
