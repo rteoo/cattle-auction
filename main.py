@@ -506,6 +506,9 @@ def _batch_success_item(index: int, result: AuctionResult, output_root: Path) ->
         "total_animals": summary.get("total_animals", 0),
         "sold": summary.get("sold", 0),
         "not_sold": summary.get("not_sold", 0),
+        "unknown_sale_status": summary.get("unknown_sale_status", 0),
+        "priced_lots": summary.get("priced_lots", 0),
+        "priced_animals": summary.get("priced_animals", 0),
         "avg_price": summary.get("avg_price", 0),
         "cost_usd": result.cost_usd,
         "top_category": top_category,
@@ -589,6 +592,9 @@ def _build_batch_report(batch_name: str, items: list[dict]) -> dict:
             "animals": sum(item.get("total_animals", 0) for item in successes),
             "sold": sum(item.get("sold", 0) for item in successes),
             "not_sold": sum(item.get("not_sold", 0) for item in successes),
+            "unknown_sale_status": sum(item.get("unknown_sale_status", 0) for item in successes),
+            "priced_lots": sum(item.get("priced_lots", 0) for item in successes),
+            "priced_animals": sum(item.get("priced_animals", 0) for item in successes),
             "cost_usd": round(sum(item.get("cost_usd") or 0.0 for item in successes), 6),
         },
         "comparison": comparison,
@@ -633,6 +639,8 @@ def _format_batch_markdown(report: dict) -> str:
         f"- Animals: {totals['animals']}",
         f"- Sold: {totals['sold']}",
         f"- Not sold: {totals['not_sold']}",
+        f"- Unknown sale status: {totals.get('unknown_sale_status', 0)}",
+        f"- Confirmed price coverage: {totals.get('priced_lots', 0)} sold lots / {totals.get('priced_animals', 0)} animals",
         "",
         "## Comparison",
         "",
@@ -659,7 +667,9 @@ def _format_batch_markdown(report: dict) -> str:
     )
     for item in report["items"]:
         if item["status"] == "success":
-            avg_price = f"{item.get('avg_price', 0):.2f}"
+            avg_price = f"{item['avg_price']:.2f}" if item.get("avg_price") else "-"
+            if item.get("priced_lots"):
+                avg_price += f" ({item['priced_lots']} lots / {item['priced_animals']} animals)"
             lines.append(
                 "| success "
                 f"| {_markdown_cell(item.get('video_id'))} "
@@ -844,7 +854,8 @@ def _calculate_summary(lots: list) -> dict:
     # Price statistics
     priced_lots = [
         lot for lot in lots
-        if lot.unit_price and lot.unit_price > 0 and lot.num_animals > 0
+        if lot.sold is True and not lot.price_needs_review
+        and lot.unit_price and lot.unit_price > 0 and lot.num_animals and lot.num_animals > 0
     ]
     priced_animals = sum(lot.num_animals for lot in priced_lots)
     avg_price = (
@@ -876,6 +887,9 @@ def _calculate_summary(lots: list) -> dict:
         "category_prices": category_prices,
         "sold": sold,
         "not_sold": not_sold,
+        "unknown_sale_status": total_lots - sold - not_sold,
+        "priced_lots": len(priced_lots),
+        "priced_animals": priced_animals,
     }
 
 
@@ -902,6 +916,7 @@ def _print_summary(summary: dict) -> None:
         f"  Lotes: {summary['total_lots']}"
         f"  |  Vendidos: {summary.get('sold', 0)}"
         f"  |  Não vendidos: {summary.get('not_sold', 0)}"
+        f"  |  Indefinidos: {summary.get('unknown_sale_status', 0)}"
     )
 
     # Animais line
@@ -924,7 +939,10 @@ def _print_summary(summary: dict) -> None:
 
     # Overall avg price
     if summary.get("avg_price"):
-        console.print(f"  Preço Médio: R$ {summary['avg_price']:,.2f} / cabeça")
+        console.print(
+            f"  Preço médio de arremate: R$ {summary['avg_price']:,.2f} / cabeça"
+            f" ({summary['priced_lots']} lotes / {summary['priced_animals']} animais)"
+        )
 
     # Avg price by category — same M/F split to keep lines short and aligned
     male_price_str = _cat_price_str(_MALE_CATEGORIES)
@@ -995,6 +1013,10 @@ def _print_table(lots) -> None:
     for lot in sorted_lots:
         age = f"{lot.age_months}m" if lot.age_months else "-"
         price = f"{lot.unit_price:,.2f}" if lot.unit_price else "-"
+        if lot.price_needs_review:
+            price += " (em revisão)" if lot.unit_price else " (valor incerto)"
+        elif lot.unit_price and lot.sold is not True:
+            price += " (lance)"
         if lot.sold is True:
             sold = "[green]✓[/green]"
         elif lot.sold is False:
