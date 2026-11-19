@@ -5,6 +5,7 @@ import pytest
 
 from models.lot import AuctionResult, Lot
 from pipeline.extractor import (
+    LLMClient,
     _parse_response,
     _merge,
     _validate_lots,
@@ -42,9 +43,8 @@ class TestValidateLots:
 
     def test_mixed_valid_and_invalid(self):
         items = [self._valid(lot_number=1), {"bad": "data"}, self._valid(lot_number=2)]
-        lots = _validate_lots(items)
-        assert len(lots) == 2
-        assert [l.lot_number for l in lots] == [1, 2]
+        with pytest.raises(ValueError, match="row 2: invalid lot_number"):
+            _validate_lots(items)
 
 
 # ── _parse_response ──────────────────────────────────────────────────────────
@@ -78,11 +78,33 @@ class TestParseResponse:
         assert lots[0].lot_number == 1
         assert lots[1].lot_number == 2
 
-    def test_invalid_lot_inside_valid_json_skipped(self):
+    def test_invalid_row_inside_valid_json_fails_the_window(self):
         raw = '[{"bad":"data"}, {"lot_number":2,"sex":"macho","category":"bezerro","num_animals":3,"breed":"Nelore"}]'
-        lots = _parse_response(raw)
-        assert len(lots) == 1
-        assert lots[0].lot_number == 2
+        with pytest.raises(ValueError, match="row 1: invalid lot_number"):
+            _parse_response(raw)
+
+    def test_schema_response_accepts_provisionally_identified_lot(self):
+        (lot,) = _parse_response('{"lots":[{"lot_number":0,"num_animals":null}]}')
+        assert lot.lot_number == 0
+        assert lot.num_animals is None
+
+    def test_openai_sends_strict_schema_for_lot_windows(self, monkeypatch):
+        client = LLMClient.__new__(LLMClient)
+        client.provider = "openai"
+        seen = {}
+
+        def capture(system, user, **options):
+            seen.update(options)
+            return '{"lots":[]}'
+
+        monkeypatch.setattr(client, "complete", capture)
+        assert client.complete_lots("prompt", "evidence") == '{"lots":[]}'
+        spec = seen["response_format"]["json_schema"]
+        assert spec["strict"]
+        item = spec["schema"]["properties"]["lots"]["items"]
+        assert item["additionalProperties"] is False
+        assert set(item["required"]) == set(item["properties"])
+        assert "default" not in item["properties"]["num_animals"]
 
     def test_sold_field_parsed(self):
         raw = '[{"lot_number":1,"sex":"macho","category":"bezerro","num_animals":5,"breed":"Nelore","sold":false}]'
@@ -701,7 +723,7 @@ class TestExtractLotsCheckpoint:
         )] == [2]
         assert changed.calls == 1
 
-    def test_legacy_lot_checkpoint_is_adopted_once(self, tmp_path):
+    def test_unverified_legacy_lot_checkpoint_is_rebuilt(self, tmp_path):
         prompt_path = tmp_path / "prompt.txt"
         prompt_path.write_text("extract", encoding="utf-8")
         output_path = tmp_path / "lots.json"
@@ -710,13 +732,34 @@ class TestExtractLotsCheckpoint:
             '"num_animals":1,"breed":"Nelore"}]',
             encoding="utf-8",
         )
-        client = _ProvenanceClient("[]", fail_on_call=True)
+        client = _ProvenanceClient('{"lots":[{"lot_number":2}]}')
 
         lots = extract_lots([_make_window()], client, prompt_path, output_path)
 
-        assert [lot.lot_number for lot in lots] == [1]
-        assert client.calls == 0
+        assert [lot.lot_number for lot in lots] == [2]
+        assert client.calls == 1
         assert output_path.with_suffix(".meta.json").exists()
+
+    def test_quality_report_distinguishes_empty_missing_and_rejected(self, tmp_path):
+        prompt = tmp_path / "prompt.txt"
+        prompt.write_text("extract", encoding="utf-8")
+        output = tmp_path / "lots.json"
+        windows = [
+            _make_window(text="auction introduction"),
+            _make_window(text="(sem conteúdo)"),
+        ]
+        client = _ProvenanceClient("[]")
+        with pytest.raises(RuntimeError, match="1 of 2"):
+            extract_lots(windows, client, prompt, output)
+        report = json.loads(output.with_suffix(".quality.json").read_text(encoding="utf-8"))
+        assert [window["status"] for window in report["windows"]] == ["empty", "missing_evidence"]
+        assert client.calls == 1
+        with pytest.raises(RuntimeError, match="1 of 1"):
+            extract_lots(windows[:1], _ProvenanceClient('[{"category":"bezerro"}]'), prompt, output)
+        report = json.loads(output.with_suffix(".quality.json").read_text(encoding="utf-8"))
+        assert report["windows"][0]["status"] == "rejected"
+        assert "row 1" in report["windows"][0]["error"]
+        assert not output.exists()
 
     def test_unreadable_lot_checkpoint_is_re_extracted(self, tmp_path):
         prompt_path = tmp_path / "prompt.txt"

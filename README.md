@@ -157,6 +157,7 @@ Every run writes to `output/<video_id>/`:
 | `screenshots_<id>/`, `screenshots_<id>.json` | JPEG frames and their index |
 | `ocr_results_<id>.json` | Screen text per timestamp |
 | `lots_<id>.json` | Extracted lots |
+| `lots_<id>.quality.json` | Window validation statuses, including rejected rows and missing evidence |
 | `metadata_<id>.json` | Date, city, auctioneer, farm, and auction type |
 | `result_<id>.json` | Final result: metadata, lots, and the run's estimated cost |
 

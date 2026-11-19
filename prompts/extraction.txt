@@ -4,11 +4,11 @@ Analise o seguinte texto — uma combinação de transcrição de áudio e OCR d
 
 Para cada lote, retorne um objeto JSON com exatamente estes campos:
 - "lot_number": número do lote (inteiro, obrigatório)
-- "sex": sexo dos animais — "macho", "fêmea" ou "misto" (string, obrigatório)
-- "category": categoria dos animais em português — ex: "bezerro", "bezerra", "garrote", "novilha", "boi", "vaca", "touro", "novilho", "bezerra desmamada", "vaca parida", "vaca prenha" (string, obrigatório)
-- "num_animals": quantidade de animais (inteiro, obrigatório)
+- "sex": sexo dos animais — "macho", "fêmea" ou "misto" (string ou null)
+- "category": categoria dos animais em português — ex: "bezerro", "bezerra", "garrote", "novilha", "boi", "vaca", "touro", "novilho", "bezerra desmamada", "vaca parida", "vaca prenha" (string ou null)
+- "num_animals": quantidade de animais (inteiro positivo ou null)
 - "age_months": idade em meses (inteiro ou null — use null se não informado)
-- "breed": raça ou grau de sangue — ex: "Nelore", "Anelorado", "Mestiço", "Cruzado", "Gir", "Guzerá", "Brahman", "Tabapuã", "Simental", "Angus" (string, obrigatório — use "Sem Raça Definida" se não identificado)
+- "breed": raça ou grau de sangue — ex: "Nelore", "Anelorado", "Mestiço", "Cruzado", "Gir", "Guzerá", "Brahman", "Tabapuã", "Simental", "Angus" (string ou null)
 - "unit_price": preço por cabeça em reais como número decimal (float ou null — null se não vendido ou não informado)
 - "total_price": preço total do lote em reais como número decimal (float ou null)
 - "sold": se o lote foi arrematado — true se vendido, false se retirado/não vendido/sem lance suficiente, null se não foi possível determinar
@@ -51,7 +51,7 @@ ATENÇÃO — SEXO A PARTIR DA CATEGORIA:
 
 ATENÇÃO — QUANTIDADE DE ANIMAIS:
 - num_animals é a QUANTIDADE de animais do lote (tipicamente entre 1 e 100)
-- num_animals NUNCA deve ser igual ao número do lote
+- Quando número do lote e quantidade coincidirem, use a quantidade apenas se houver evidência independente.
 - Se ouvir "lote 135, 3 novilhas", num_animals = 3, lot_number = 135
 - Não confunda o número do lote com a quantidade de animais
 

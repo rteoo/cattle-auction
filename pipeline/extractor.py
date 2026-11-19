@@ -5,6 +5,8 @@ import re
 import statistics
 from pathlib import Path
 
+from pydantic import ValidationError
+
 from models.lot import Lot, coerce_price_value, price_to_cents
 from pipeline.aggregator import Window
 from pipeline.checkpoint import write_json
@@ -56,7 +58,33 @@ class LLMClient:
                 f"Flash-Lite) or 'openai' (alt, GPT-4.1 Mini)."
             )
 
-    def complete(self, system: str, user: str, max_retries: int = 3) -> str:
+    def complete_lots(self, system: str, user: str) -> str:
+        if self.provider != "openai":
+            return self.complete(system, user)
+        schema = Lot.model_json_schema()
+        for field_schema in schema["properties"].values():
+            field_schema.pop("default", None)
+        schema["required"] = list(schema["properties"])
+        schema["additionalProperties"] = False
+        return self.complete(
+            system + '\nNesta chamada, retorne o array dentro de um objeto {"lots": [...]} conforme o esquema.',
+            user,
+            response_format={
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "lot_window",
+                    "strict": True,
+                    "schema": {
+                        "type": "object",
+                        "properties": {"lots": {"type": "array", "items": schema}},
+                        "required": ["lots"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+        )
+
+    def complete(self, system: str, user: str, max_retries: int = 3, **request_options) -> str:
         import time as _time
 
         # openai and openrouter share the same SDK interface.
@@ -69,6 +97,7 @@ class LLMClient:
                         {"role": "system", "content": system},
                         {"role": "user", "content": user},
                     ],
+                    **request_options,
                 )
                 # Track usage — both providers return `usage` in the response.
                 # Missing usage (rare) → count the call but no token delta.
@@ -76,7 +105,12 @@ class LLMClient:
                 if resp.usage is not None:
                     self.input_tokens += resp.usage.prompt_tokens or 0
                     self.output_tokens += resp.usage.completion_tokens or 0
-                return resp.choices[0].message.content
+                choice = resp.choices[0]
+                if choice.finish_reason != "stop" or getattr(choice.message, "refusal", None):
+                    raise ValueError(f"LLM did not provide a complete response ({choice.finish_reason})")
+                if not choice.message.content:
+                    raise ValueError("LLM response has no text")
+                return choice.message.content
             except Exception as e:
                 if "429" in str(e) and attempt < max_retries:
                     wait = 2 ** attempt * 5  # 5s, 10s, 20s
@@ -107,6 +141,10 @@ def extract_lots(
     discarding the price.
     """
     system_prompt = prompt_path.read_text(encoding="utf-8")
+    quality_path = output_path.with_suffix(".quality.json")
+    if not windows:
+        write_json(quality_path, {"status": "missing_evidence", "windows": []})
+        raise RuntimeError("Lot extraction incomplete: no audio or OCR evidence windows.")
     verify_prompt = (
         verify_prompt_path.read_text(encoding="utf-8")
         if verify_prompt_path is not None
@@ -117,15 +155,21 @@ def extract_lots(
         client,
         system_prompt,
         windows,
-        extra={"verify_prompt": verify_prompt},
+        extra={"verify_prompt": verify_prompt, "window_validation": 1},
     )
-    cached = _load_cached_checkpoint(output_path, provenance, _load, "Lots")
-    if cached is not None:
+    cached = _load_cached_checkpoint(output_path, provenance, _load, "Lots", allow_legacy=False)
+    try:
+        cached_quality = _load_metadata_checkpoint(quality_path) if cached is not None else None
+    except (OSError, ValueError):
+        cached_quality = None
+    if (cached is not None and cached_quality and cached_quality.get("provenance") == provenance
+            and cached_quality.get("status") == "complete"):
         return cached
 
     lots_by_number: dict[int, Lot] = {}
     total = len(windows)
     failed_windows = 0
+    window_report = []
 
     # Per-window results survive a failed run, so a retry only pays for the
     # windows that did not finish. They are bound to the same provenance as
@@ -140,13 +184,18 @@ def extract_lots(
             for lot in completed[i]:
                 _merge(lots_by_number, lot)
             print(f"  Window {i}/{total}: {window.label} (saved), {len(lots_by_number)} total so far.")
+            window_report.append({"index": i, "label": window.label,
+                                  "status": "complete" if completed[i] else "empty"})
             continue
 
-        already_found = sorted(lots_by_number.keys())
-        already_str = str(already_found) if already_found else "nenhum ainda"
+        record = {"index": i, "label": window.label}
+        window_report.append(record)
+        if not window.combined_text.strip() or window.combined_text.strip() == "(sem conteúdo)":
+            record["status"] = "missing_evidence"
+            failed_windows += 1
+            continue
 
         user_content = (
-            f"Lotes já encontrados (retorne também desfechos e correções): {already_str}\n\n"
             f"Segmento [{window.label}]:\n\n"
             f"{window.combined_text}"
         )
@@ -154,10 +203,12 @@ def extract_lots(
         print(f"  Extracting window {i}/{total}: {window.label}")
 
         try:
-            response = client.complete(system_prompt, user_content)
+            response = getattr(client, "complete_lots", client.complete)(system_prompt, user_content)
             new_lots = _parse_response(response)
         except Exception as e:
             print(f"  WARNING: LLM call failed for window {i}: {e}")
+            record["status"] = "rejected" if isinstance(e, ValueError) else "failed"
+            record["error"] = str(e)[:400] if isinstance(e, ValueError) else type(e).__name__
             failed_windows += 1
             continue
 
@@ -178,6 +229,7 @@ def extract_lots(
             if not new_lots:
                 print("    All were unsupported new numbers; dropping the window's output.")
 
+        record["status"] = "complete" if new_lots else "empty"
         completed[i] = new_lots
         _save_window_progress(progress_path, provenance, completed)
         for lot in new_lots:
@@ -185,10 +237,15 @@ def extract_lots(
 
         print(f"    -> {len(new_lots)} lot(s) found, {len(lots_by_number)} total so far.")
 
+    write_json(quality_path, {
+        "status": "incomplete" if failed_windows else "complete",
+        "provenance": provenance,
+        "windows": window_report,
+    })
     if failed_windows:
         raise RuntimeError(
             f"Lot extraction incomplete: {failed_windows} of {total} window(s) failed; "
-            "no final checkpoint was written. Finished windows are saved and "
+            f"see {quality_path.name}. No final checkpoint was written. Finished windows are saved and "
             "will not be re-sent on the next run."
         )
 
@@ -418,10 +475,14 @@ def _parse_response(response: str) -> list[Lot]:
 
     try:
         data = json.loads(text)
-        if isinstance(data, list):
-            return _validate_lots(data)
     except json.JSONDecodeError:
         pass
+    else:
+        if isinstance(data, dict) and isinstance(data.get("lots"), list):
+            return _validate_lots(data["lots"])
+        if isinstance(data, list):
+            return _validate_lots(data)
+        raise ValueError("LLM response did not contain a valid JSON array")
 
     decoder = json.JSONDecoder()
     # Try every array start so bracketed prose such as "Summary [done]" does
@@ -551,10 +612,12 @@ def _validate_lots(data: list[dict]) -> list[Lot]:
     are NOT applied here — we need all windows' prices to compute them.
     """
     lots = []
-    for item in data:
+    rejected = []
+    for index, item in enumerate(data, 1):
+        if not isinstance(item, dict):
+            rejected.append(f"row {index}: expected an object")
+            continue
         try:
-            if not isinstance(item, dict):
-                continue
             values = dict(item)
             basis = values.get("price_basis")
             if basis in ("per_arroba", "unknown"):
@@ -583,9 +646,12 @@ def _validate_lots(data: list[dict]) -> list[Lot]:
                     values.setdefault("raw_price", str(raw))
                 values[field] = amount
             lot = Lot(**values)
-        except Exception:
-            continue
-        lots.append(_sanity_check(lot))  # no bounds → shape invariants only
+            lots.append(_sanity_check(lot))  # no bounds → shape invariants only
+        except ValidationError as exc:
+            fields = ", ".join(str(error["loc"][0]) for error in exc.errors(include_input=False))
+            rejected.append(f"row {index}: invalid {fields}")
+    if rejected:
+        raise ValueError("Rejected lot rows: " + "; ".join(rejected))
     return lots
 
 
@@ -703,7 +769,7 @@ def _stage_provenance(
     }
 
 
-def _load_cached_checkpoint(path: Path, provenance: dict, loader, label: str):
+def _load_cached_checkpoint(path: Path, provenance: dict, loader, label: str, *, allow_legacy=True):
     try:
         has_checkpoint = path.is_file() and path.stat().st_size > 0
     except OSError:
@@ -713,6 +779,9 @@ def _load_cached_checkpoint(path: Path, provenance: dict, loader, label: str):
 
     metadata_path = _checkpoint_meta_path(path)
     if not metadata_path.exists():
+        if not allow_legacy:
+            print(f"  {label} checkpoint has no provenance; rebuilding.")
+            return None
         try:
             value = loader(path)
         except (OSError, ValueError, TypeError):

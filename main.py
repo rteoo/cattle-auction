@@ -504,6 +504,7 @@ def _batch_success_item(index: int, result: AuctionResult, output_root: Path) ->
         "auctioneer_display": _infer_auctioneer(result.auctioneer, result.notes),
         "total_lots": summary.get("total_lots", 0),
         "total_animals": summary.get("total_animals", 0),
+        "lots_with_unknown_headcount": summary.get("lots_with_unknown_headcount", 0),
         "sold": summary.get("sold", 0),
         "not_sold": summary.get("not_sold", 0),
         "unknown_sale_status": summary.get("unknown_sale_status", 0),
@@ -590,6 +591,7 @@ def _build_batch_report(batch_name: str, items: list[dict]) -> dict:
             "failed": len(failures),
             "lots": sum(item.get("total_lots", 0) for item in successes),
             "animals": sum(item.get("total_animals", 0) for item in successes),
+            "lots_with_unknown_headcount": sum(item.get("lots_with_unknown_headcount", 0) for item in successes),
             "sold": sum(item.get("sold", 0) for item in successes),
             "not_sold": sum(item.get("not_sold", 0) for item in successes),
             "unknown_sale_status": sum(item.get("unknown_sale_status", 0) for item in successes),
@@ -637,6 +639,7 @@ def _format_batch_markdown(report: dict) -> str:
         f"- Failed: {totals['failed']}",
         f"- Lots: {totals['lots']}",
         f"- Animals: {totals['animals']}",
+        f"- Lots with unknown headcount: {totals.get('lots_with_unknown_headcount', 0)}",
         f"- Sold: {totals['sold']}",
         f"- Not sold: {totals['not_sold']}",
         f"- Unknown sale status: {totals.get('unknown_sale_status', 0)}",
@@ -836,19 +839,20 @@ def _calculate_summary(lots: list) -> dict:
     from collections import Counter, defaultdict
 
     total_lots = len(lots)
-    total_animals = sum(lot.num_animals for lot in lots)
+    total_animals = sum(lot.num_animals or 0 for lot in lots)
 
     # Count by sex
     sex_animals = {}
     for sex in ["macho", "fêmea", "misto"]:
-        animals = sum(lot.num_animals for lot in lots if lot.sex == sex)
+        animals = sum(lot.num_animals or 0 for lot in lots if lot.sex == sex)
         if animals > 0:
             sex_animals[sex] = animals
 
     # Animal count by category (all categories, sorted by count desc)
     cat_counter = Counter()
     for lot in lots:
-        cat_counter[lot.category] += lot.num_animals
+        if lot.num_animals:
+            cat_counter[lot.category or "categoria indefinida"] += lot.num_animals
     category_animals = dict(cat_counter.most_common())
 
     # Price statistics
@@ -867,8 +871,9 @@ def _calculate_summary(lots: list) -> dict:
     cat_price_totals: dict = defaultdict(float)
     cat_priced_animals: dict = defaultdict(int)
     for lot in priced_lots:
-        cat_price_totals[lot.category] += lot.unit_price * lot.num_animals
-        cat_priced_animals[lot.category] += lot.num_animals
+        if lot.category:
+            cat_price_totals[lot.category] += lot.unit_price * lot.num_animals
+            cat_priced_animals[lot.category] += lot.num_animals
     category_prices = {
         cat: cat_price_totals[cat] / cat_priced_animals[cat]
         for cat in cat_price_totals
@@ -881,6 +886,7 @@ def _calculate_summary(lots: list) -> dict:
     return {
         "total_lots": total_lots,
         "total_animals": total_animals,
+        "lots_with_unknown_headcount": sum(lot.num_animals is None for lot in lots),
         "sex_animals": sex_animals,
         "category_animals": category_animals,
         "avg_price": avg_price,
@@ -923,6 +929,8 @@ def _print_summary(summary: dict) -> None:
     sex = summary.get("sex_animals", {})
     sex_str = "  |  ".join(f"{k.title()}: {v}" for k, v in sex.items())
     console.print(f"  Animais: {summary['total_animals']}" + (f"  |  {sex_str}" if sex_str else ""))
+    if summary.get("lots_with_unknown_headcount"):
+        console.print(f"  Lotes sem quantidade: {summary['lots_with_unknown_headcount']}")
 
     # Category animal-count lines (male / female / other)
     male_str = _cat_animal_str(_MALE_CATEGORIES)
@@ -1021,11 +1029,11 @@ def _print_table(lots) -> None:
             sold = "-"
         table.add_row(
             str(lot.lot_number),
-            lot.sex,
-            lot.category,
-            str(lot.num_animals),
+            lot.sex or "-",
+            lot.category or "-",
+            str(lot.num_animals) if lot.num_animals is not None else "-",
             age,
-            lot.breed,
+            lot.breed or "-",
             price,
             sold,
             lot.timestamp_start or "-",

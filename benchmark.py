@@ -200,7 +200,7 @@ def run_extraction(
 
     # Calculate stats
     total_lots = len(lots)
-    total_animals = sum(l.num_animals for l in lots)
+    total_animals = sum(l.num_animals or 0 for l in lots)
     sold_count = sum(1 for l in lots if l.sold is True)
     unsold_count = sum(1 for l in lots if l.sold is False)
     unknown_sold = sum(1 for l in lots if l.sold is None)
