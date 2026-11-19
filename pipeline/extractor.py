@@ -146,7 +146,7 @@ def extract_lots(
         already_str = str(already_found) if already_found else "nenhum ainda"
 
         user_content = (
-            f"Lotes já encontrados (não repetir): {already_str}\n\n"
+            f"Lotes já encontrados (retorne também desfechos e correções): {already_str}\n\n"
             f"Segmento [{window.label}]:\n\n"
             f"{window.combined_text}"
         )
@@ -315,12 +315,13 @@ def _verify_lot(
       - "discard"  → evidence doesn't support any specific price; null it
       - None       → verification failed (LLM error / parse error); null it
     """
-    if not lot.timestamp_start:
+    price_timestamp = lot.price_timestamp or lot.timestamp_start
+    if not price_timestamp:
         return None
 
     # Find the window whose interval contains this lot's timestamp.
     try:
-        ts_sec = _parse_hhmmss(lot.timestamp_start)
+        ts_sec = _parse_hhmmss(price_timestamp)
     except (TypeError, ValueError):
         return None
     window = next(
@@ -342,7 +343,7 @@ def _verify_lot(
     lines += [
         f"- Raça: {lot.breed}",
         f"- Preço por cabeça extraído: R$ {lot.unit_price:,.2f}",
-        f"- Timestamp: {lot.timestamp_start}",
+        f"- Timestamp: {price_timestamp}",
         "",
         f"Evidências da janela [{window.label}]:",
         "",
@@ -597,27 +598,28 @@ def _merge(lots_by_number: dict[int, Lot], new_lot: Lot) -> None:
     existing_data = existing.model_dump()
     new_data = new_lot.model_dump()
 
-    # Prices use last-non-null: later windows carry the final hammer price
-    price_fields = {"unit_price", "total_price"}
-    # sold=True is a final determination and always wins
-    sold_existing = existing_data["sold"]
-    sold_new = new_data["sold"]
-    if sold_existing is True or sold_new is True:
-        merged_sold = True
-    elif sold_existing is False and sold_new is None:
-        merged_sold = False  # preserve explicit not-sold over unknown
-    else:
-        merged_sold = sold_new if sold_new is not None else sold_existing
+    price_fields = ("unit_price", "total_price", "raw_price", "price_basis",
+                    "price_needs_review", "price_timestamp")
+    state_rank = {None: 0, False: 1, True: 2}
+    old_rank, new_rank = state_rank[existing.sold], state_rank[new_lot.sold]
+    observation = existing_data
+    if new_rank > old_rank:
+        observation = new_data
+    elif new_rank == old_rank and any(new_data[field] is not None for field in price_fields[:3]):
+        observation = new_data
 
-    merged = {}
-    for k in existing_data:
-        if k == "sold":
-            merged[k] = merged_sold
-        elif k in price_fields:
-            # last-non-null wins for prices (final hammer beats opening ask)
-            merged[k] = new_data[k] if new_data[k] is not None else existing_data[k]
-        else:
-            merged[k] = existing_data[k] if existing_data[k] is not None else new_data[k]
+    merged = {field: existing_data[field] if existing_data[field] is not None else new_data[field]
+              for field in existing_data}
+    for field in (*price_fields, "sold"):
+        merged[field] = observation[field]
+
+    # Keep disagreements visible and out of confirmed-price statistics.
+    if existing.sold is True and new_lot.sold is True:
+        prices_conflict = (existing.unit_price is not None and new_lot.unit_price is not None
+                           and existing.unit_price != new_lot.unit_price)
+        merged["price_needs_review"] = bool(
+            prices_conflict or existing.price_needs_review or new_lot.price_needs_review
+        )
 
     lots_by_number[new_lot.lot_number] = Lot(**merged)
 

@@ -78,6 +78,7 @@ class Lot(BaseModel):
     raw_price: str | None = None
     price_basis: Literal["per_head", "per_arroba", "lot_total", "unknown"] | None = None
     price_needs_review: bool = False
+    price_timestamp: str | None = None  # position of the quote or confirmed hammer price
 
     @field_validator("category", mode="before")
     @classmethod

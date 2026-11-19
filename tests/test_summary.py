@@ -53,17 +53,17 @@ class TestCalculateSummary:
 
     def test_average_price_excludes_nulls(self):
         lots = [
-            lot(1, "macho", "bezerro", 5, unit_price=3000.0),
-            lot(2, "fêmea", "vaca", 3, unit_price=5000.0),
-            lot(3, "misto", "garrote", 4, unit_price=None),  # excluded
+            lot(1, "macho", "bezerro", 5, unit_price=3000.0, sold=True),
+            lot(2, "fêmea", "vaca", 3, unit_price=5000.0, sold=True),
+            lot(3, "misto", "garrote", 4, unit_price=None, sold=True),
         ]
         s = _calculate_summary(lots)
         assert s["avg_price"] == pytest.approx(3750.0)
 
     def test_average_price_excludes_zero(self):
         lots = [
-            lot(1, "macho", "bezerro", 5, unit_price=3000.0),
-            lot(2, "fêmea", "vaca", 3, unit_price=0.0),  # excluded (zero price)
+            lot(1, "macho", "bezerro", 5, unit_price=3000.0, sold=True),
+            lot(2, "fêmea", "vaca", 3, unit_price=0.0, sold=True),
         ]
         s = _calculate_summary(lots)
         assert s["avg_price"] == pytest.approx(3000.0)
@@ -74,7 +74,7 @@ class TestCalculateSummary:
 
     def test_category_excluded_from_price_if_no_price(self):
         lots = [
-            lot(1, "macho", "bezerro", 5, unit_price=3000.0),
+            lot(1, "macho", "bezerro", 5, unit_price=3000.0, sold=True),
             lot(2, "fêmea", "vaca", 3, unit_price=None),
         ]
         s = _calculate_summary(lots)
@@ -83,9 +83,9 @@ class TestCalculateSummary:
 
     def test_price_averages_are_weighted_by_animals(self):
         lots = [
-            lot(1, "macho", "bezerro", 1, unit_price=1000.0),
-            lot(2, "macho", "bezerro", 9, unit_price=9000.0),
-            lot(3, "fêmea", "vaca", 2, unit_price=5000.0),
+            lot(1, "macho", "bezerro", 1, unit_price=1000.0, sold=True),
+            lot(2, "macho", "bezerro", 9, unit_price=9000.0, sold=True),
+            lot(3, "fêmea", "vaca", 2, unit_price=5000.0, sold=True),
         ]
 
         summary = _calculate_summary(lots)
@@ -104,6 +104,20 @@ class TestCalculateSummary:
         s = _calculate_summary(lots)
         assert s["sold"] == 2
         assert s["not_sold"] == 1
+        assert s["unknown_sale_status"] == 1
+
+    def test_only_confirmed_uncontested_sales_contribute_to_price(self):
+        summary = _calculate_summary([
+            lot(1, "macho", "bezerro", 5, unit_price=2400, sold=True),
+            lot(2, "macho", "bezerro", 10, unit_price=3100),
+            lot(3, "macho", "bezerro", 10, unit_price=5000, sold=False),
+            lot(4, "macho", "bezerro", 10, unit_price=6000, sold=True).model_copy(
+                update={"price_needs_review": True}
+            ),
+        ])
+        assert summary["avg_price"] == 2400
+        assert summary["priced_lots"] == 1
+        assert summary["priced_animals"] == 5
 
     def test_single_lot(self):
         lots = [lot(1, "macho", "bezerro", 7, unit_price=3500.0, sold=True)]

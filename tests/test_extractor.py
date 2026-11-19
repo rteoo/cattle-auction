@@ -175,6 +175,27 @@ class TestMerge:
         _merge(store, _make_lot(lot_number=1, sold=False))
         assert store[1].sold is True
 
+    def test_later_open_bid_does_not_overwrite_confirmed_sale(self):
+        store = {}
+        _merge(store, _make_lot(sold=True, unit_price=2400, price_timestamp="00:02:10"))
+        _merge(store, _make_lot(unit_price=3100, price_timestamp="00:02:30"))
+        assert (store[1].sold, store[1].unit_price, store[1].price_timestamp) == (
+            True, 2400, "00:02:10",
+        )
+
+    def test_sale_without_price_does_not_promote_open_bid(self):
+        store = {}
+        _merge(store, _make_lot(unit_price=3100))
+        _merge(store, _make_lot(sold=True))
+        assert store[1].sold is True
+        assert store[1].unit_price is None
+
+    def test_disagreeing_confirmed_sales_flag_price_for_review(self):
+        store = {}
+        _merge(store, _make_lot(sold=True, unit_price=2400))
+        _merge(store, _make_lot(sold=True, unit_price=3100))
+        assert store[1].price_needs_review
+
 
 # ── _sanity_check: shape invariants (no bounds) ──────────────────────────────
 
