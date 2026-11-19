@@ -563,8 +563,8 @@ def _validate_lots(data: list[dict]) -> list[Lot]:
             else:
                 fields = ()
             for field in fields:
-                if values.get(field) is not None:
-                    values.setdefault("raw_price", str(values[field]))
+                if values.get(field) is not None and not values.get("raw_price"):
+                    values["raw_price"] = str(values[field])
                 values[field] = None
             if basis == "unknown" and values.get("raw_price"):
                 values["price_needs_review"] = True
@@ -578,8 +578,9 @@ def _validate_lots(data: list[dict]) -> list[Lot]:
                 if isinstance(raw, (int, float)) and amount is not None and 0 < amount < 100:
                     amount = None
                     values["price_needs_review"] = True
-                if raw is not None and amount is None and values.get("price_needs_review"):
-                    values.setdefault("raw_price", str(raw))
+                if (raw is not None and amount is None
+                        and values.get("price_needs_review") and not values.get("raw_price")):
+                    values["raw_price"] = str(raw)
                 values[field] = amount
             lot = Lot(**values)
         except Exception:

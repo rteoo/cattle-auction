@@ -27,7 +27,7 @@ class TestValidateLots:
         return base
 
     def test_ambiguous_small_json_number_preserves_lot_and_flags_price(self):
-        (lot,) = _validate_lots([self._valid(unit_price=5.16)])
+        (lot,) = _validate_lots([self._valid(unit_price=5.16, raw_price=None)])
         assert lot.unit_price is None
         assert lot.raw_price == "5.16"
         assert lot.price_needs_review
