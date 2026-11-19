@@ -1,5 +1,8 @@
 import json
+import math
+import re
 import subprocess
+from bisect import bisect_left
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -8,19 +11,14 @@ from rich.progress import BarColumn, Progress, TaskProgressColumn, TextColumn, T
 from pipeline.checkpoint import write_json
 from pipeline.scenes import detect_scene_changes
 
-# Minimum spacing (seconds) between kept timestamps in scene sampling.
-#
-# Load-bearing invariant, not just a tuning knob: pipeline/ocr.py keys its
-# results dict by `timestamp_str` (HH:MM:SS), so two frames that round to the
-# same second would silently overwrite each other and lose one frame's OCR
-# text. Any value >= 1.0 makes that collision impossible. Do not lower this
-# below 1.0 without giving OCR results a key that survives sub-second spacing.
 _MIN_GAP = 2.0
+_FRAME_INDEX_VERSION = 2
+_SHOWINFO_PTS = re.compile(r"showinfo.*\bn:\s*\d+.*\bpts_time:\s*([\d.eE+\-]+)")
 
 
 @dataclass
 class Screenshot:
-    seconds: int
+    seconds: float
     timestamp_str: str  # HH:MM:SS
     path: Path
 
@@ -61,7 +59,7 @@ def extract_screenshots(
                 safety_interval,
                 source_key=source_key,
             )
-            and _cached_frames_usable(cached_screenshots, legacy=cached_params.get("legacy", False))
+            and _cached_frames_usable(cached_screenshots)
         ):
             print("  Screenshots already extracted, loading from cache.")
             return cached_screenshots
@@ -89,6 +87,8 @@ def extract_screenshots(
     else:
         screenshots = _extract_interval(video_path, screenshots_dir, interval)
 
+    if not screenshots:
+        raise RuntimeError("No timestamped video frames could be extracted.")
     print(f"  Extracted {len(screenshots)} screenshots.")
     _save(
         screenshots,
@@ -109,10 +109,8 @@ def _merge_with_safety_grid(
 ) -> list[float]:
     """Union of detected scene changes and a coarse fixed grid.
 
-    The grid guarantees we never lose coverage if scene detection under-fires
-    on some stretch of video; the union is still far sparser than sampling
-    every `interval` seconds. Timestamps closer than `min_gap` collapse to
-    the earlier one.
+    Keep transitions first, then try to capture the outgoing board shortly
+    before each transition. Fill the remaining gaps with the safety grid.
     """
     safety_interval = max(1, int(safety_interval))
     grid = []
@@ -123,13 +121,25 @@ def _merge_with_safety_grid(
     if not grid:
         grid = [0.0]
 
-    combined = sorted(set(scene_timestamps) | set(grid))
-    collapsed: list[float] = []
-    for ts in combined:
-        if collapsed and ts - collapsed[-1] < min_gap:
-            continue
-        collapsed.append(ts)
-    return collapsed
+    kept: list[float] = []
+
+    def add(ts: float) -> None:
+        if not 0 <= ts < duration:
+            return
+        index = bisect_left(kept, ts)
+        if index and ts - kept[index - 1] + 1e-6 < min_gap:
+            return
+        if index < len(kept) and kept[index] - ts + 1e-6 < min_gap:
+            return
+        kept.insert(index, ts)
+
+    for ts in sorted(scene_timestamps):
+        add(ts)
+    for ts in sorted(scene_timestamps):
+        add(round(ts - min_gap, 3))
+    for ts in grid:
+        add(ts)
+    return kept
 
 
 def _extract_interval(video_path: Path, screenshots_dir: Path, interval: int) -> list[Screenshot]:
@@ -137,16 +147,13 @@ def _extract_interval(video_path: Path, screenshots_dir: Path, interval: int) ->
     duration = _video_duration(video_path)
     total_frames = int(duration // interval) + 1
 
-    _run_ffmpeg_with_progress(video_path, screenshots_dir, interval, duration, total_frames)
+    timestamps = _run_ffmpeg_with_progress(video_path, screenshots_dir, interval, total_frames)
 
-    # ffmpeg numbers frames sequentially as frame_000001.jpg, frame_000002.jpg, ...
-    # Frame N (1-indexed) sits at timestamp (N-1)*interval seconds.
     frames = sorted(screenshots_dir.glob("frame_*.jpg"))
-    screenshots = []
-    for i, frame_path in enumerate(frames):
-        secs = i * interval
-        screenshots.append(Screenshot(seconds=secs, timestamp_str=_fmt(secs), path=frame_path))
-    return screenshots
+    if len(frames) != len(timestamps):
+        raise RuntimeError("FFmpeg frame files and source timestamps do not match.")
+    return [Screenshot(seconds=ts, timestamp_str=_fmt(int(ts)), path=path)
+            for ts, path in zip(timestamps, frames, strict=True)]
 
 
 def _extract_at_timestamps(
@@ -173,16 +180,15 @@ def _extract_at_timestamps(
         )
 
         for i, ts in enumerate(timestamps, start=1):
-            secs = int(round(ts))
-            timestamp_str = _fmt(secs)
             output = screenshots_dir / _frame_filename(i, ts)
             command = [
                 "ffmpeg", "-y",
                 "-ss", str(ts),
                 "-i", str(video_path),
+                "-vf", "showinfo",
                 "-frames:v", "1",
                 "-q:v", "2",
-                "-hide_banner", "-loglevel", "error",
+                "-hide_banner", "-loglevel", "info",
                 str(output),
             ]
             proc = subprocess.run(
@@ -192,16 +198,18 @@ def _extract_at_timestamps(
                 encoding="utf-8",
                 errors="replace",
             )
-            progress.update(task, advance=1, ts=timestamp_str)
+            progress.update(task, advance=1, ts=_fmt(int(ts)))
 
             # Scene sampling issues one ffmpeg call per timestamp, so a single
             # unreadable moment must not abort a run that may already be hours
             # in. A skipped frame simply contributes no OCR evidence.
-            if proc.returncode != 0 or not output.exists() or output.stat().st_size == 0:
+            match = _SHOWINFO_PTS.search(proc.stderr or "")
+            if proc.returncode != 0 or not match or not output.exists() or output.stat().st_size == 0:
                 failed += 1
                 continue
 
-            screenshots.append(Screenshot(seconds=secs, timestamp_str=timestamp_str, path=output))
+            seconds = ts + float(match[1])
+            screenshots.append(Screenshot(seconds=seconds, timestamp_str=_fmt(int(seconds)), path=output))
 
     if failed:
         print(f"  [warning] {failed} frame(s) could not be extracted and were skipped.")
@@ -213,23 +221,26 @@ def _run_ffmpeg_with_progress(
     video_path: Path,
     screenshots_dir: Path,
     interval: int,
-    duration: float,
     total_frames: int,
-) -> None:
+) -> list[float]:
+    timestamps = []
     proc = subprocess.Popen(
         [
             "ffmpeg",
             "-i", str(video_path),
-            "-vf", f"fps=1/{interval}",
+            "-vf", f"setpts=PTS-STARTPTS,select='gte(t,selected_n*{interval})',showinfo",
+            "-fps_mode", "passthrough",
             "-q:v", "2",
             str(screenshots_dir / "frame_%06d.jpg"),
-            "-progress", "pipe:1",
             "-nostats",
             "-hide_banner",
-            "-loglevel", "error",
+            "-loglevel", "info",
         ],
         stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
         text=True,
+        encoding="utf-8",
+        errors="replace",
     )
 
     with Progress(
@@ -247,16 +258,15 @@ def _run_ffmpeg_with_progress(
         )
 
         for line in proc.stdout:
-            line = line.strip()
-            if line.startswith("out_time="):
-                ts = line.split("=", 1)[1]
-                secs = _parse_time(ts)
-                frame = int(secs // interval)
-                progress.update(task, completed=frame, ts=ts[:8])
+            match = _SHOWINFO_PTS.search(line)
+            if match:
+                timestamps.append(float(match[1]))
+                progress.update(task, completed=len(timestamps), ts=_fmt(int(timestamps[-1])))
 
     proc.wait()
     if proc.returncode != 0:
         raise subprocess.CalledProcessError(proc.returncode, "ffmpeg")
+    return timestamps
 
 
 def _video_duration(video_path: Path) -> float:
@@ -264,24 +274,20 @@ def _video_duration(video_path: Path) -> float:
         [
             "ffprobe", "-v", "quiet",
             "-print_format", "json",
-            "-show_streams", str(video_path),
+            "-show_streams", "-show_format", str(video_path),
         ],
         capture_output=True, text=True, check=True,
     )
     data = json.loads(result.stdout)
-    for stream in data.get("streams", []):
-        if stream.get("codec_type") == "video":
-            return float(stream["duration"])
+    stream = next((s for s in data.get("streams", []) if s.get("codec_type") == "video"), {})
+    for candidate in (stream.get("duration"), data.get("format", {}).get("duration")):
+        try:
+            duration = float(candidate)
+        except (ValueError, TypeError):
+            continue
+        if math.isfinite(duration) and duration > 0:
+            return duration
     raise RuntimeError(f"Could not determine duration of {video_path}")
-
-
-def _parse_time(ts: str) -> float:
-    # Format from ffmpeg -progress: "HH:MM:SS.ffffff" or "N/A"
-    try:
-        parts = ts.split(":")
-        return int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
-    except Exception:
-        return 0.0
 
 
 def _fmt(seconds: int) -> str:
@@ -309,6 +315,7 @@ def _save(
     source_key: dict,
 ) -> None:
     data = {
+        "version": _FRAME_INDEX_VERSION,
         "sampling": sampling,
         "interval": interval,
         "safety_interval": safety_interval,
@@ -324,10 +331,8 @@ def _save(
 def _load(path: Path) -> tuple[list[Screenshot], dict] | None:
     """Load a cached screenshot index, if any, along with the params it was made with.
 
-    The legacy format (written before sampling parameters were tracked) is a
-    bare JSON list. It is treated as sampling="interval" with an unknown
-    interval and is never invalidated by a parameter mismatch — an unknown
-    interval means "trust it".
+    Legacy timestamps were estimates. Read their shape so resume can
+    invalidate them and extract source-timestamped frames.
     """
     if not path.exists():
         return None
@@ -353,6 +358,7 @@ def _parse_index(raw) -> tuple[list[Screenshot], dict]:
     ]
     params = {
         "legacy": False,
+        "version": raw.get("version"),
         "sampling": raw.get("sampling"),
         "interval": raw.get("interval"),
         "safety_interval": raw.get("safety_interval"),
@@ -369,8 +375,8 @@ def _params_match(
     *,
     source_key=None,
 ) -> bool:
-    if cached_params.get("legacy"):
-        return True
+    if cached_params.get("version") != _FRAME_INDEX_VERSION:
+        return False
     if cached_params.get("sampling") != sampling:
         return False
     cached_source_key = cached_params.get("source_key")
@@ -396,12 +402,8 @@ def _source_key(video_path: Path) -> dict:
     return identity
 
 
-def _cached_frames_usable(screenshots: list[Screenshot], *, legacy: bool) -> bool:
-    # Legacy bare-list indexes are intentionally trusted. Modern indexes fail
-    # closed when a referenced frame is missing or empty.
-    if legacy:
-        return True
-    return all(
+def _cached_frames_usable(screenshots: list[Screenshot]) -> bool:
+    return bool(screenshots) and all(
         shot.path.is_file() and shot.path.stat().st_size > 0
         for shot in screenshots
     )

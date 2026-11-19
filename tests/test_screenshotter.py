@@ -1,9 +1,11 @@
 """Tests for the screenshot stage (interval and scene sampling)."""
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from pipeline import screenshotter
@@ -12,21 +14,22 @@ from pipeline import screenshotter
 def _make_fake_popen(duration):
     """Fake ffmpeg process for the single-pass interval extraction path.
 
-    Writes the same number of dummy frame files a real `fps=1/interval` pass
+    Writes dummy frame files and source timestamps as an interval pass
     would produce, named the way ffmpeg itself names them (frame_%06d.jpg),
     without running ffmpeg.
     """
 
     class FakePopen:
-        def __init__(self, cmd, stdout=None, text=None):
+        def __init__(self, cmd, **kwargs):
             self.cmd = cmd
             self.returncode = 0
-            self.stdout = iter([])
             pattern_arg = next(a for a in cmd if "%06d" in a)
             pattern_path = Path(pattern_arg)
             vf_value = cmd[cmd.index("-vf") + 1]
-            interval = int(vf_value.split("fps=1/")[1])
+            interval = int(vf_value.split("selected_n*")[1].split(")")[0])
             total_frames = int(duration // interval) + 1
+            self.stdout = iter([f"[Parsed_showinfo_2] n:{i} pts_time:{i * interval}"
+                                for i in range(total_frames)])
             for i in range(1, total_frames + 1):
                 out = pattern_path.parent / pattern_path.name.replace("%06d", f"{i:06d}")
                 out.write_bytes(b"fake")
@@ -37,11 +40,15 @@ def _make_fake_popen(duration):
     return FakePopen
 
 
+def _scene_result(cmd):
+    return subprocess.CompletedProcess(cmd, 0, stderr="[Parsed_showinfo_0] n:0 pts_time:0")
+
+
 def _fake_run_writes_output(calls):
     def fake_run(cmd, **kwargs):
         calls.append(cmd)
         Path(cmd[-1]).write_bytes(b"fake")
-        return subprocess.CompletedProcess(cmd, 0)
+        return _scene_result(cmd)
 
     return fake_run
 
@@ -60,10 +67,8 @@ def test_scene_sampling_unions_detected_and_safety_grid(monkeypatch, tmp_path):
         video_path, tmp_path, "vid", sampling="scene", safety_interval=60,
     )
 
-    # union of {0.0, 12.3, 45.0} (detected) and {0, 60, 120} (safety grid),
-    # nothing closer than 2.0s so nothing collapses.
-    assert [s.seconds for s in shots] == [0, 12, 45, 60, 120]
-    assert len(calls) == 5
+    assert [s.seconds for s in shots] == [0, 10.3, 12.3, 43, 45, 60, 120]
+    assert len(calls) == 7
 
 
 def test_scene_sampling_falls_back_to_interval_when_no_changes_detected(monkeypatch, tmp_path, capsys):
@@ -103,7 +108,7 @@ def test_scene_frame_command_uses_jpeg_quality_flag_and_extension(monkeypatch, t
 
 
 def test_interval_sampling_keeps_ffmpeg_frame_numbering(monkeypatch, tmp_path):
-    """Interval mode must stay byte-for-byte what it was before scene sampling."""
+    """Interval filenames remain stable while timestamp evidence comes from FFmpeg."""
     monkeypatch.setattr(screenshotter, "_video_duration", lambda video_path: 65.0)
     monkeypatch.setattr(screenshotter.subprocess, "Popen", _make_fake_popen(duration=65.0))
 
@@ -123,7 +128,7 @@ def test_interval_sampling_keeps_ffmpeg_frame_numbering(monkeypatch, tmp_path):
 
 def test_scene_sampling_skips_failed_frames_without_aborting(monkeypatch, tmp_path, capsys):
     """One unreadable moment must not kill a run that may already be hours in."""
-    monkeypatch.setattr(screenshotter, "_video_duration", lambda video_path: 5.0)
+    monkeypatch.setattr(screenshotter, "_video_duration", lambda video_path: 25.0)
     monkeypatch.setattr(
         screenshotter, "detect_scene_changes", lambda video_path, **kw: [0.0, 10.0, 20.0]
     )
@@ -134,7 +139,7 @@ def test_scene_sampling_skips_failed_frames_without_aborting(monkeypatch, tmp_pa
         if "00010s00" in output.name:
             return subprocess.CompletedProcess(cmd, 1, stdout="", stderr="boom")
         output.write_bytes(b"fake")
-        return subprocess.CompletedProcess(cmd, 0)
+        return _scene_result(cmd)
 
     monkeypatch.setattr(screenshotter.subprocess, "run", fake_run)
 
@@ -145,19 +150,19 @@ def test_scene_sampling_skips_failed_frames_without_aborting(monkeypatch, tmp_pa
         video_path, tmp_path, "vid", sampling="scene", safety_interval=60,
     )
 
-    assert [s.seconds for s in shots] == [0, 20]
+    assert [s.seconds for s in shots] == [0, 8, 18, 20]
     assert "1 frame(s) could not be extracted" in capsys.readouterr().out
 
 
 def test_zero_byte_frame_is_treated_as_a_failure(monkeypatch, tmp_path):
-    monkeypatch.setattr(screenshotter, "_video_duration", lambda video_path: 5.0)
+    monkeypatch.setattr(screenshotter, "_video_duration", lambda video_path: 12.0)
     monkeypatch.setattr(screenshotter, "detect_scene_changes", lambda video_path, **kw: [0.0, 10.0])
 
     def fake_run(cmd, **kwargs):
         output = Path(cmd[-1])
         # ffmpeg exits 0 but leaves an empty file behind.
         output.write_bytes(b"" if "00010s00" in output.name else b"fake")
-        return subprocess.CompletedProcess(cmd, 0)
+        return _scene_result(cmd)
 
     monkeypatch.setattr(screenshotter.subprocess, "run", fake_run)
 
@@ -168,7 +173,7 @@ def test_zero_byte_frame_is_treated_as_a_failure(monkeypatch, tmp_path):
         video_path, tmp_path, "vid", sampling="scene", safety_interval=60,
     )
 
-    assert [s.seconds for s in shots] == [0]
+    assert [s.seconds for s in shots] == [0, 8]
 
 
 def test_scene_cache_survives_an_unrelated_interval_change(monkeypatch, tmp_path):
@@ -181,6 +186,7 @@ def test_scene_cache_survives_an_unrelated_interval_change(monkeypatch, tmp_path
     index_path.write_text(
         json.dumps(
             {
+                "version": screenshotter._FRAME_INDEX_VERSION,
                 "sampling": "scene",
                 "interval": 30,
                 "safety_interval": 60,
@@ -227,7 +233,7 @@ def test_stale_frames_are_cleared_before_a_fresh_extraction(monkeypatch, tmp_pat
     assert not (screenshots_dir / "frame_000010_00300s00.jpg").exists()
 
 
-def test_legacy_list_shaped_cache_still_loads_and_is_never_invalidated(tmp_path):
+def test_legacy_list_shaped_cache_is_rebuilt_with_source_timestamps(monkeypatch, tmp_path):
     screenshots_dir = tmp_path / "screenshots_vid"
     screenshots_dir.mkdir()
     frame = screenshots_dir / "frame_000001.jpg"
@@ -238,15 +244,16 @@ def test_legacy_list_shaped_cache_still_loads_and_is_never_invalidated(tmp_path)
         encoding="utf-8",
     )
 
-    # Requested params differ wildly from anything the legacy cache could
-    # have recorded; it must still be trusted as-is.
+    monkeypatch.setattr(screenshotter, "_video_duration", lambda path: 5.0)
+    monkeypatch.setattr(screenshotter.subprocess, "Popen", _make_fake_popen(duration=5.0))
     shots = screenshotter.extract_screenshots(
-        tmp_path / "video.mp4", tmp_path, "vid", interval=45, sampling="scene", safety_interval=15,
+        tmp_path / "video.mp4", tmp_path, "vid", interval=45,
     )
 
     assert len(shots) == 1
     assert shots[0].seconds == 0
     assert shots[0].path == frame
+    assert json.loads(index_path.read_text(encoding="utf-8"))["version"] == screenshotter._FRAME_INDEX_VERSION
 
 
 def test_param_mismatch_invalidates_cache_and_reextracts(monkeypatch, tmp_path, capsys):
@@ -305,6 +312,7 @@ def test_matching_params_uses_cache_without_reextracting(monkeypatch, tmp_path):
     index_path.write_text(
         json.dumps(
             {
+                "version": screenshotter._FRAME_INDEX_VERSION,
                 "sampling": "interval",
                 "interval": 30,
                 "safety_interval": 60,
@@ -336,6 +344,7 @@ def test_modern_cache_with_missing_frame_is_reextracted(monkeypatch, tmp_path):
     index_path.write_text(
         json.dumps(
             {
+                "version": screenshotter._FRAME_INDEX_VERSION,
                 "sampling": "interval",
                 "interval": 30,
                 "safety_interval": 60,
@@ -392,6 +401,7 @@ def test_scene_timestamps_never_collide_on_the_ocr_dict_key(monkeypatch, tmp_pat
 def test_screenshot_cache_source_key_distinguishes_video_resolution():
     params = {
         "legacy": False,
+        "version": screenshotter._FRAME_INDEX_VERSION,
         "sampling": "interval",
         "interval": 30,
         "safety_interval": 60,
@@ -418,3 +428,20 @@ def test_corrupt_screenshot_index_is_re_extracted(monkeypatch, tmp_path):
 
     assert [shot.timestamp_str for shot in shots] == ["00:00:00", "00:00:05"]
     assert json.loads((tmp_path / "screenshots_vid.json").read_text(encoding="utf-8"))["interval"] == 5
+
+
+@pytest.mark.skipif(not shutil.which("ffmpeg") or not shutil.which("ffprobe"), reason="requires FFmpeg tools")
+def test_interval_frames_match_source_presentation_time(tmp_path):
+    import cv2
+
+    video = tmp_path / "board.mp4"
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-f", "lavfi", "-i",
+         "color=red:size=160x90:rate=2:d=10[r];color=blue:size=160x90:rate=2:d=55[b];[r][b]concat=n=2:v=1:a=0",
+         "-pix_fmt", "yuv420p", str(video)],
+        check=True,
+    )
+    shots = screenshotter.extract_screenshots(video, tmp_path, "vid", interval=30)
+    assert [shot.seconds for shot in shots] == [0.0, 30.0, 60.0]
+    blue, _, red = cv2.imread(str(shots[0].path))[5, 5]
+    assert red > blue

@@ -159,7 +159,10 @@ Two modes, selected with `--frame-sampling`:
 - `interval` (default) — one frame every `--screenshot-interval` seconds. Blind to content but predictable, and the mode every existing checkpoint was built with.
 - `scene` — frames where the lot board actually changed, unioned with a coarse `--safety-interval` grid so under-firing detection never loses coverage outright. Falls back to `interval` when detection returns nothing.
 
-`screenshots_<id>.json` records the sampling parameters it was produced with, so changing them invalidates the cache instead of silently returning stale frames. Caches written before this existed are bare JSON lists; those are trusted as-is and never invalidated.
+`screenshots_<id>.json` records source presentation timestamps and the
+sampling parameters. Indexes from before source timestamps are rebuilt.
+`ocr_results_<id>.meta.json` records the source frame, fractional time,
+bounding boxes and confidence, including detections below the text threshold.
 
 ### Findings worth not re-litigating
 
