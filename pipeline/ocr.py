@@ -1,6 +1,5 @@
+import hashlib
 import json
-import logging
-import warnings
 from pathlib import Path
 
 from rich.progress import BarColumn, Progress, TaskProgressColumn, TextColumn, TimeElapsedColumn, TimeRemainingColumn
@@ -25,15 +24,9 @@ def run_ocr(
         cached_results = _load_results(output_path)
         if cached_results is None:
             print("  OCR checkpoint is unreadable, re-running OCR.")
-        elif cached_provenance is None and not metadata_path.exists():
-            expected_timestamps = {shot.timestamp_str for shot in screenshots}
-            if set(cached_results) == expected_timestamps:
-                print("  OCR results already exist, adopting legacy cache.")
-                _save_provenance(provenance, metadata_path)
-                return cached_results
-            print("  Legacy OCR cache does not match screenshots; re-running OCR.")
-        elif cached_provenance == provenance:
-            print(f"  OCR results already exist, loading from cache.")
+        elif (cached_provenance and cached_provenance.get("provenance") == provenance
+              and _project_text(cached_provenance.get("frames")) == cached_results):
+            print("  OCR results already exist, loading from cache.")
             return cached_results
         else:
             print("  OCR provenance changed, re-running OCR.")
@@ -43,7 +36,7 @@ def run_ocr(
     print("  Loading RapidOCR...")
     reader = RapidOCR()
 
-    results: dict[str, list[str]] = {}
+    frames = []
     total = len(screenshots)
 
     with Progress(
@@ -59,24 +52,42 @@ def run_ocr(
         for shot in screenshots:
             progress.update(task, advance=1, ts=shot.timestamp_str)
 
-            if not shot.path.exists():
-                results[shot.timestamp_str] = []
-                continue
+            exists = shot.path.is_file()
+            raw, _ = reader(str(shot.path)) if exists else (None, None)
+            frames.append({
+                "path": str(shot.path),
+                "seconds": shot.seconds,
+                "timestamp": shot.timestamp_str,
+                "missing": not exists,
+                "detections": [
+                    {
+                        "box": [[float(x), float(y)] for x, y in box] if box is not None else None,
+                        "text": text,
+                        "confidence": float(confidence),
+                        "included": bool(confidence >= confidence_threshold),
+                    }
+                    for box, text, confidence in raw or []
+                ],
+            })
 
-            raw, _ = reader(str(shot.path))
-
-            lines = []
-            # raw is [[box, text, confidence], ...] or None when no text found
-            if raw:
-                for detection in raw:
-                    text, confidence = detection[1], detection[2]
-                    if confidence >= confidence_threshold:
-                        lines.append(text)
-
-            results[shot.timestamp_str] = lines
-
+    results = _project_text(frames)
     write_json(output_path, results)
-    _save_provenance(provenance, _provenance_path(output_path))
+    write_json(_provenance_path(output_path), {"provenance": provenance, "frames": frames})
+    return results
+
+
+def _project_text(frames: list | None) -> dict[str, list[str]] | None:
+    if not isinstance(frames, list):
+        return None
+    results: dict[str, list[str]] = {}
+    try:
+        for frame in frames:
+            texts = results.setdefault(frame["timestamp"], [])
+            for detection in frame["detections"]:
+                if detection["included"]:
+                    texts.append(detection["text"])
+    except (KeyError, TypeError):
+        return None
     return results
 
 
@@ -91,11 +102,11 @@ def _valid_checkpoint(path: Path) -> bool:
 def _file_identity(path: Path) -> dict:
     identity = {"path": str(path.resolve())}
     try:
-        stat = path.stat()
+        with path.open("rb") as frame:
+            digest = hashlib.file_digest(frame, "sha256").hexdigest()
     except OSError:
-        identity.update({"size": None, "mtime_ns": None})
-    else:
-        identity.update({"size": stat.st_size, "mtime_ns": stat.st_mtime_ns})
+        digest = None
+    identity["sha256"] = digest
     return identity
 
 
@@ -129,7 +140,3 @@ def _load_results(path: Path) -> dict[str, list[str]] | None:
     except (OSError, json.JSONDecodeError):
         return None
     return value if isinstance(value, dict) else None
-
-
-def _save_provenance(provenance: dict, path: Path) -> None:
-    write_json(path, provenance)

@@ -101,6 +101,10 @@ On-screen data takes priority over audio for lot number, head count, price, and
 sale status. Prices outside the auction's own Tukey fence are sent back to the
 LLM with their source evidence to be confirmed, corrected, or discarded.
 
+Frame indexes record fractional source timestamps. Scene mode also tries to
+retain the outgoing board shortly before a detected change. OCR metadata
+retains each frame's bounding boxes, confidence scores, and source path.
+
 ## Options
 
 ```bash
