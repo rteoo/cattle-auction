@@ -44,12 +44,11 @@ PROMPTS_DIR = Path(__file__).parent / "prompts"
 @click.option(
     "--provider",
     type=click.Choice(["openrouter", "openai"]),
-    default="openrouter",
+    default="openai",
     show_default=True,
     help=(
         "LLM provider for lot extraction. "
-        "'openrouter' → Gemini 2.5 Flash-Lite Preview (default, cheapest/fastest). "
-        "'openai' → GPT-4.1 Mini (alternative, highest accuracy)."
+        "'openai' uses GPT-6 Luna. 'openrouter' uses Gemini 2.5 Flash-Lite."
     ),
 )
 @click.option(
@@ -225,6 +224,7 @@ def _run_single_url(
     safety_interval=60,
 ):
     model = extractor.default_model(provider)
+    client = extractor.LLMClient(provider=provider, model=model)
 
     console.rule("[bold]Cattle Auction Extractor")
     console.print(f"  URL:         {url}")
@@ -321,7 +321,6 @@ def _run_single_url(
     windows = aggregator.aggregate(segments, ocr_results)
     console.print(f"  Aggregated into {len(windows)} windows.")
 
-    client = extractor.LLMClient(provider=provider, model=model)
     lots = extractor.extract_lots(
         windows,
         client=client,

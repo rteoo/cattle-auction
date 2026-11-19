@@ -34,13 +34,13 @@ Use this priority order when docs disagree:
 3. `README.md`.
 4. Historical notes, comments, or benchmark writeups.
 
-The current CLI in `main.py` supports one URL, multiple positional URLs, or `--batch-file`. It supports `--provider openrouter|openai` only, defaults to `openrouter`, and does not expose a generic `--model` or `ollama` option.
+The current CLI in `main.py` supports one URL, multiple positional URLs, or `--batch-file`. It supports `--provider openrouter|openai` only, defaults to `openai`, and does not expose a generic `--model` or `ollama` option.
 
 ## Setup
 
 ```bash
-uv sync --no-install-project
-uv sync --extra local --no-install-project  # optional, Apple Silicon MLX Whisper
+uv sync --frozen --no-install-project
+uv sync --frozen --extra local --no-install-project  # optional, Apple Silicon MLX Whisper
 ```
 
 Host prerequisites (user-installed; inspect availability before running the pipeline):
@@ -74,7 +74,7 @@ uv run python main.py --batch-file links.txt --batch-name maio-2026 [OPTIONS]
 Important options:
 
 ```bash
---provider openrouter|openai       # default: openrouter
+--provider openrouter|openai       # default: openai
 --transcriber mlx|cpp|groq         # default: groq
 --whisper-model medium             # used by mlx/cpp
 --cpp-model /path/to/ggml.bin      # optional whisper.cpp model path
@@ -98,8 +98,8 @@ Default LLM models are resolved in `pipeline/extractor.py`:
 
 ```python
 _DEFAULT_MODELS = {
-    "openrouter": "google/gemini-2.5-flash-lite-preview-09-2025",
-    "openai": "gpt-4.1-mini",
+    "openai": "gpt-6-luna",
+    "openrouter": "google/gemini-2.5-flash-lite",
 }
 ```
 

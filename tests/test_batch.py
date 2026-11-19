@@ -66,7 +66,7 @@ def test_batch_file_runs_urls_in_sequence_and_saves_report(monkeypatch, tmp_path
     calls = []
 
     def fake_run_single_url(url, **kwargs):
-        calls.append((url, kwargs["output_dir"]))
+        calls.append((url, kwargs["provider"]))
         if url.endswith("aaa"):
             return _result(
                 url,
@@ -104,9 +104,9 @@ def test_batch_file_runs_urls_in_sequence_and_saves_report(monkeypatch, tmp_path
     )
 
     assert result.exit_code == 0, result.output
-    assert [call[0] for call in calls] == [
-        "https://www.youtube.com/watch?v=aaa",
-        "https://www.youtube.com/watch?v=bbb",
+    assert calls == [
+        ("https://www.youtube.com/watch?v=aaa", "openai"),
+        ("https://www.youtube.com/watch?v=bbb", "openai"),
     ]
 
     report_path = tmp_path / "output" / "batches" / "maio" / "batch_summary.json"
