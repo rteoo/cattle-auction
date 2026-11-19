@@ -1013,6 +1013,10 @@ def _print_table(lots) -> None:
     for lot in sorted_lots:
         age = f"{lot.age_months}m" if lot.age_months else "-"
         price = f"{lot.unit_price:,.2f}" if lot.unit_price else "-"
+        if lot.price_needs_review:
+            price += " (em revisão)" if lot.unit_price else " (valor incerto)"
+        elif lot.unit_price and lot.sold is not True:
+            price += " (lance)"
         if lot.sold is True:
             sold = "[green]✓[/green]"
         elif lot.sold is False:

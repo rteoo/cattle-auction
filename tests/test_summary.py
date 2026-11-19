@@ -1,10 +1,13 @@
 """Tests for main._calculate_summary statistics."""
 import sys
+from io import StringIO
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import pytest
 from click.testing import CliRunner
+from rich.console import Console
+import main
 from models.lot import Lot
 from main import _calculate_summary, cli
 
@@ -15,6 +18,19 @@ def lot(lot_number, sex, category, num_animals, unit_price=None, sold=None, bree
         num_animals=num_animals, breed=breed,
         unit_price=unit_price, sold=sold,
     )
+
+
+def test_lot_table_labels_disputed_and_unconfirmed_prices(monkeypatch):
+    output = StringIO()
+    monkeypatch.setattr(main, "console", Console(file=output, width=160))
+    main._print_table([
+        lot(1, "macho", "bezerro", 5, unit_price=2400, sold=True).model_copy(
+            update={"price_needs_review": True}
+        ),
+        lot(2, "macho", "bezerro", 5, unit_price=3100),
+    ])
+    assert "2,400.00 (em revisão)" in output.getvalue()
+    assert "3,100.00 (lance)" in output.getvalue()
 
 
 class TestCalculateSummary:
