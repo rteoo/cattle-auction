@@ -1,4 +1,6 @@
-import math
+import re
+from decimal import Decimal, InvalidOperation
+from typing import Literal
 
 from pydantic import BaseModel, field_validator
 
@@ -18,44 +20,47 @@ _CATEGORY_PLURAL_MAP = {
 }
 
 
-def coerce_price_value(v):
-    """Coerce Brazilian auction price formats to float.
+_BR_PRICE = re.compile(r"(?:[0-9]+|[0-9]{1,3}(?:\.[0-9]{3})+)(?:,[0-9]{1,2})?\Z")
+_DECIMAL_PRICE = re.compile(r"[0-9]+(?:\.[0-9]{1,2})?\Z")
 
-    Accepts strings such as "R$ 3.100,00" and numeric values. Numeric values
-    below 100 are treated as likely JSON parses of BR thousand-separated prices
-    such as 5.160 -> 5.16, then repaired to 5160.
-    """
-    if v is None:
+
+def price_to_cents(value: object) -> int | None:
+    """Parse a BRL amount without guessing its magnitude or price basis."""
+    if value is None:
         return None
-    if isinstance(v, str):
-        text = v.replace("R$", "").strip()
+    if isinstance(value, str):
+        text = value.strip().removeprefix("R$").strip()
         if not text:
             return None
-        if "," in text:
-            # A comma is unambiguously the Brazilian decimal separator; dots
-            # in the same value are thousands separators.
-            normalized = text.replace(".", "").replace(",", ".")
-        elif text.count(".") == 1:
-            whole, fraction = text.split(".")
-            # Short values with exactly three trailing digits are the common
-            # BR thousands form ("3.100" -> 3100). Longer integer parts and
-            # any other fraction width are ordinary decimal-point strings.
-            normalized = whole + fraction if len(whole) <= 3 and len(fraction) == 3 else text
-        elif text.count(".") > 1:
-            groups = text.split(".")
-            if not all(len(group) == 3 for group in groups[1:]):
-                raise ValueError("invalid price format")
-            normalized = "".join(groups)
+        if _BR_PRICE.fullmatch(text):
+            value = text.replace(".", "").replace(",", ".")
+        elif _DECIMAL_PRICE.fullmatch(text):
+            value = text
         else:
-            normalized = text
-        f = float(normalized)
-    else:
-        f = float(v)
-    if not math.isfinite(f):
-        raise ValueError("price must be finite")
-    if 0 < f < 100:
-        f = f * 1000
-    return f
+            raise ValueError("invalid BRL amount")
+    elif isinstance(value, bool) or not isinstance(value, (int, float, Decimal)):
+        raise ValueError("invalid BRL amount")
+
+    try:
+        amount = Decimal(str(value))
+        if not amount.is_finite() or amount < 0:
+            raise ValueError("price must be finite and non-negative")
+        cents = amount * 100
+        if cents != cents.to_integral_value():
+            raise ValueError("price must have at most two decimal places")
+        return int(cents)
+    except InvalidOperation as exc:
+        raise ValueError("invalid BRL amount") from exc
+
+
+def coerce_price_value(value: object) -> float | None:
+    cents = price_to_cents(value)
+    if cents is None:
+        return None
+    try:
+        return cents / 100
+    except OverflowError as exc:
+        raise ValueError("BRL amount cannot be represented") from exc
 
 
 class Lot(BaseModel):
@@ -70,6 +75,9 @@ class Lot(BaseModel):
     sold: bool | None = None  # True = arrematado, False = não vendido/retirado, None = indefinido
     timestamp_start: str | None = None  # HH:MM:SS
     notes: str | None = None
+    raw_price: str | None = None
+    price_basis: Literal["per_head", "per_arroba", "lot_total", "unknown"] | None = None
+    price_needs_review: bool = False
 
     @field_validator("category", mode="before")
     @classmethod

@@ -2,7 +2,7 @@
 import pytest
 from pydantic import ValidationError
 
-from models.lot import Lot
+from models.lot import Lot, price_to_cents
 
 
 # ── coerce_price ────────────────────────────────────────────────────────────
@@ -37,10 +37,15 @@ class TestCoercePrice:
     def test_rs_prefix_stripped(self):
         assert self._lot(unit_price="R$ 2.500,00").unit_price == 2500.0
 
-    # BR float mis-parse guard: LLM outputs "5.160" in JSON → Python float 5.16
-    def test_float_under_100_multiplied_by_1000(self):
-        """5.16 (from JSON "5.160") must be corrected to 5160."""
-        assert self._lot(unit_price=5.16).unit_price == pytest.approx(5160.0)
+    def test_small_amounts_keep_their_magnitude(self):
+        assert self._lot(unit_price="R$ 80,00").unit_price == 80.0
+        assert self._lot(unit_price=5.16).unit_price == 5.16
+        assert price_to_cents("1.800,51") == 180051
+
+    @pytest.mark.parametrize("amount", [True, -10, "1,234.56", 1.234])
+    def test_invalid_or_overprecise_amount_is_rejected(self, amount):
+        with pytest.raises(ValidationError):
+            self._lot(unit_price=amount)
 
     def test_float_under_100_no_false_positive_above_100(self):
         """Values ≥ 100 are not touched by the guard."""

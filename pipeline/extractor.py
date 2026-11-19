@@ -5,7 +5,7 @@ import re
 import statistics
 from pathlib import Path
 
-from models.lot import Lot, coerce_price_value
+from models.lot import Lot, coerce_price_value, price_to_cents
 from pipeline.aggregator import Window
 from pipeline.checkpoint import write_json
 
@@ -287,9 +287,9 @@ def extract_lots(
     for lot_number, lot in lots_by_number.items():
         applied_bounds = None if lot_number in confirmed_lot_numbers else bounds
         checked = _sanity_check(lot, bounds=applied_bounds)
-        if checked.total_price is None and checked.unit_price is not None and checked.num_animals:
+        if checked.unit_price is not None and checked.num_animals and checked.num_animals > 0:
             data = checked.model_dump()
-            data["total_price"] = round(checked.unit_price * checked.num_animals, 2)
+            data["total_price"] = price_to_cents(checked.unit_price) * checked.num_animals / 100
             checked = Lot(**data)
         lots_by_number[lot_number] = checked
 
@@ -378,6 +378,8 @@ def _verify_lot(
         return "discard"
     if price is None:
         return "discard"
+    if isinstance(correct_price, (int, float)) and 0 < price < 100:
+        return "discard"  # could be a BR thousands separator lost in JSON
     # If the LLM says confirmed=false but returns the same price, it's effectively
     # a confirm — collapse to the cleaner verdict so the log reads correctly.
     if lot.unit_price is not None and abs(price - lot.unit_price) < 0.01:
@@ -550,7 +552,36 @@ def _validate_lots(data: list[dict]) -> list[Lot]:
     lots = []
     for item in data:
         try:
-            lot = Lot(**item)
+            if not isinstance(item, dict):
+                continue
+            values = dict(item)
+            basis = values.get("price_basis")
+            if basis in ("per_arroba", "unknown"):
+                fields = ("unit_price", "total_price")
+            elif basis == "lot_total":
+                fields = ("unit_price",)
+            else:
+                fields = ()
+            for field in fields:
+                if values.get(field) is not None:
+                    values.setdefault("raw_price", str(values[field]))
+                values[field] = None
+            if basis == "unknown" and values.get("raw_price"):
+                values["price_needs_review"] = True
+            for field in ("unit_price", "total_price"):
+                raw = values.get(field)
+                try:
+                    amount = coerce_price_value(raw)
+                except ValueError:
+                    amount = None
+                    values["price_needs_review"] = True
+                if isinstance(raw, (int, float)) and amount is not None and 0 < amount < 100:
+                    amount = None
+                    values["price_needs_review"] = True
+                if raw is not None and amount is None and values.get("price_needs_review"):
+                    values.setdefault("raw_price", str(raw))
+                values[field] = amount
+            lot = Lot(**values)
         except Exception:
             continue
         lots.append(_sanity_check(lot))  # no bounds → shape invariants only

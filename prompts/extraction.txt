@@ -14,6 +14,9 @@ Para cada lote, retorne um objeto JSON com exatamente estes campos:
 - "sold": se o lote foi arrematado — true se vendido, false se retirado/não vendido/sem lance suficiente, null se não foi possível determinar
 - "timestamp_start": timestamp no formato "HH:MM:SS" de quando o lote foi anunciado (string ou null)
 - "notes": observações relevantes como condição corporal, prenhez, manejo sanitário, pelagem (string ou null)
+- "raw_price": valor original conforme aparece na tela ou é dito no áudio (string ou null)
+- "price_basis": "per_head", "per_arroba", "lot_total" ou "unknown" (null se não houver preço)
+- "price_needs_review": true se a leitura do valor ou a base de preço for ambígua, false caso contrário
 
 REGRAS IMPORTANTES:
 1. Retorne APENAS um array JSON válido, sem nenhum texto antes ou depois
