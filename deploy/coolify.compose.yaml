@@ -1,0 +1,81 @@
+services:
+  cattle-auction:
+    build:
+      context: .
+      args:
+        CATTLE_AUCTION_RELEASE: ${CATTLE_AUCTION_RELEASE:-v2.0.0}
+        CATTLE_AUCTION_REVISION: ${CATTLE_AUCTION_REVISION:-fb8b1d7a6a822b86255840888b19d9fd14314235}
+      dockerfile_inline: |
+        FROM ghcr.io/astral-sh/uv:0.13.4@sha256:9f130421e930bfbdc563c00740466603f8723158e90297d07957c2294640262b AS uv-image
+        FROM denoland/deno:bin-2.6.10@sha256:a947d7ea218d4b1cce3d17366d9ef2de96e20e0e54080025f5a8be70c9c020ee AS deno-image
+        FROM python:3.11.16-slim-bookworm@sha256:a36c24f9cbdf4fd0f52d67f0823eeac19c2028c637cecc392d97f980d4fec56b AS python-image
+
+        FROM python-image AS build
+        ARG CATTLE_AUCTION_RELEASE
+        ARG CATTLE_AUCTION_REVISION
+        ENV UV_PYTHON_DOWNLOADS=never UV_LINK_MODE=copy
+        COPY --from=uv-image /uv /usr/local/bin/uv
+        RUN apt-get update \
+            && apt-get install -y --no-install-recommends git \
+            && rm -rf /var/lib/apt/lists/*
+        WORKDIR /app
+        RUN python - <<'PY'
+        import os
+        import re
+        import subprocess
+
+        tag = os.environ["CATTLE_AUCTION_RELEASE"]
+        expected = os.environ["CATTLE_AUCTION_REVISION"]
+        if not re.fullmatch(r"v[0-9]+[.][0-9]+[.][0-9]+", tag):
+            raise SystemExit("Select a versioned Cattle Auction release tag.")
+        subprocess.run(
+            ["git", "clone", "--depth", "1", "--branch", tag,
+             "https://github.com/rteoo/cattle-auction.git", "."],
+            check=True,
+        )
+        actual = subprocess.check_output(
+            ["git", "rev-parse", f"refs/tags/{tag}^{{commit}}"], text=True
+        ).strip()
+        if actual != expected:
+            raise SystemExit(f"Tag {tag} resolved to {actual}; expected {expected}.")
+        PY
+        RUN uv sync --frozen --no-dev --no-install-project --python /usr/local/bin/python3.11
+
+        FROM python-image AS runtime
+        ENV PATH="/app/.venv/bin:/usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin" PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+        COPY --from=deno-image /deno /usr/local/bin/deno
+        RUN apt-get update \
+            && apt-get install -y --no-install-recommends ffmpeg libgl1 libglib2.0-0 util-linux \
+            && rm -rf /var/lib/apt/lists/* \
+            && groupadd --gid 10001 cattle \
+            && useradd --uid 10001 --gid 10001 --create-home cattle \
+            && install -d -o cattle -g cattle /data
+        WORKDIR /app
+        COPY --from=build /app/.venv /app/.venv
+        COPY --from=build /app/main.py /app/main.py
+        COPY --from=build /app/models /app/models
+        COPY --from=build /app/pipeline /app/pipeline
+        COPY --from=build /app/prompts /app/prompts
+        USER cattle
+        RUN ffmpeg -version >/dev/null \
+            && deno --version >/dev/null \
+            && python -c "import cv2, sqlite3, yt_dlp_ejs; from rapidocr_onnxruntime import RapidOCR; RapidOCR()" \
+            && python main.py --help >/dev/null
+
+    init: true
+    command: ["sleep", "infinity"]
+    restart: unless-stopped
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+    volumes:
+      - auction-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "test -w /data && test -x /app/.venv/bin/python && command -v ffmpeg >/dev/null && command -v deno >/dev/null"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  auction-data:
