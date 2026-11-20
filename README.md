@@ -174,7 +174,7 @@ Each lot follows this schema:
 
 ```json
 {
-  "lot_number": 12,
+  "lot_number": "12",
   "sex": "macho",
   "category": "garrote",
   "num_animals": 30,
@@ -222,6 +222,27 @@ minutes, OCR of ~600 frames 5–10, and extraction of ~30 windows 3–8. Downloa
 depend on the network.
 
 ## Resume and checkpoints
+
+Lot IDs are strings. Exported IDs preserve leading zeroes and letter suffixes. Old numeric checkpoints remain readable, with their original numeric values converted to strings.
+
+The extractor reviews uncertain or conflicting outcomes and missing or
+flagged prices with the surrounding audio and OCR. A reviewed decision must
+cite a real timestamped source line. Prices without a confirmed sale are
+excluded from the result. The review can add LLM calls.
+
+Replay one video's extraction from downloaded checkpoints and score it
+against a reference without sending the reference to the model:
+
+```bash
+uv run --frozen python bench/run_single.py VIDEO_ID openai gpt-6-luna --reasoning-effort medium --input-dir PATH_TO_VIDEO_CHECKPOINTS
+uv run --frozen python bench/analyze.py --reference PATH_TO_REFERENCE_JSON --result PATH_TO_RESULT_OR_LOTS_JSON
+```
+
+The scoring command accepts a lot array or an object containing `lots`.
+Use exact string IDs in new reference files. Numeric IDs in historical
+references can match a unique corresponding label, preserving distinct
+padded or suffixed labels in new data.
+
 
 For a paid extraction-only benchmark on cached transcript and OCR, compare
 GPT-6 Luna reasoning levels on the two included reference auctions:

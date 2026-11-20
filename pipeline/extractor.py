@@ -7,9 +7,11 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from models.lot import Lot, coerce_price_value, price_to_cents
+from models.lot import Lot, coerce_price_value, lot_number_sort_key, price_to_cents
 from pipeline.aggregator import Window
+from pipeline.board_evidence import filter_unmarked_lot_ids, finalize_board_evidence
 from pipeline.checkpoint import write_json
+from pipeline.settlement import reconcile_settlements
 
 # Number of windows from the start to scan for auction metadata
 _METADATA_WINDOWS = 3
@@ -73,6 +75,10 @@ class LLMClient:
             },
         )
 
+    def complete_settlements(self, system: str, user: str) -> str:
+        options = {"response_format": {"type": "json_object"}} if self.provider == "openai" else {}
+        return self.complete(system, user, **options)
+
     def complete(self, system: str, user: str, max_retries: int = 3, **request_options) -> str:
         import time as _time
 
@@ -129,6 +135,7 @@ def extract_lots(
     prompt_path: Path,
     output_path: Path,
     verify_prompt_path: Path | None = None,
+    settlement_prompt_path: Path | None = None,
 ) -> list[Lot]:
     """Process each window with the LLM, deduplicate, and save lots.json.
 
@@ -147,12 +154,14 @@ def extract_lots(
         if verify_prompt_path is not None
         else None
     )
+    settlement_prompt = (settlement_prompt_path.read_text(encoding="utf-8")
+                         if settlement_prompt_path is not None else None)
     provenance = _stage_provenance(
         "lots",
         client,
         system_prompt,
         windows,
-        extra={"verify_prompt": verify_prompt, "window_validation": 2},
+        extra={"verify_prompt": verify_prompt, "settlement_prompt": settlement_prompt, "window_validation": 5},
     )
     cached = _load_cached_checkpoint(output_path, provenance, _load, "Lots", allow_legacy=False)
     try:
@@ -163,7 +172,7 @@ def extract_lots(
             and cached_quality.get("status") == "complete"):
         return cached
 
-    lots_by_number: dict[int, Lot] = {}
+    lots_by_number: dict[str, Lot] = {}
     total = len(windows)
     failed_windows = 0
     window_report = []
@@ -238,7 +247,7 @@ def extract_lots(
         print(f"    -> {len(new_lots)} lot(s) found, {len(lots_by_number)} total so far.")
 
     write_json(quality_path, {
-        "status": "incomplete" if failed_windows else "complete",
+        "status": "incomplete" if failed_windows or settlement_prompt else "complete",
         "provenance": provenance,
         "windows": window_report,
     })
@@ -248,6 +257,12 @@ def extract_lots(
             f"see {quality_path.name}. No final checkpoint was written. Finished windows are saved and "
             "will not be re-sent on the next run."
         )
+
+    before_marker_check = len(lots_by_number)
+    lots_by_number = filter_unmarked_lot_ids(lots_by_number, windows)
+    rejected_unmarked = before_marker_check - len(lots_by_number)
+    if rejected_unmarked:
+        print(f"  Filtered {rejected_unmarked} OCR lot ID(s) with no board or audio support.")
 
     # Finalize: apply statistical outlier filter + re-check invariants
     # + fill any missing total deterministically.
@@ -265,7 +280,8 @@ def extract_lots(
     # Bounds are computed from all unit_prices surviving the merge, so they
     # represent the auction's own distribution — no hard-coded reference.
     observed_prices = [
-        lot.unit_price for lot in lots_by_number.values() if lot.unit_price
+        lot.unit_price for lot in lots_by_number.values()
+        if lot.unit_price and (settlement_prompt is None or (lot.sold is True and not lot.price_needs_review))
     ]
     bounds = _compute_price_bounds(observed_prices)
     lo, hi = bounds
@@ -285,7 +301,7 @@ def extract_lots(
     # the outlier by re-examining the transcript+OCR around that lot's
     # timestamp. This recovers legitimate high-priced touros that the
     # statistical filter would otherwise discard.
-    if verify_prompt is not None and math.isfinite(hi):
+    if settlement_prompt is None and verify_prompt is not None and math.isfinite(hi):
         flagged = [
             (num, lot) for num, lot in lots_by_number.items()
             if lot.unit_price is not None and (lot.unit_price < lo or lot.unit_price > hi)
@@ -335,25 +351,54 @@ def extract_lots(
     # `_sanity_check(lot, bounds=bounds)`, undoing the verification. So for
     # lots that survived verification, skip the bounds check — they're trusted.
     confirmed_lot_numbers = set()
-    if verify_prompt is not None:
+    if settlement_prompt is None and verify_prompt is not None:
         confirmed_lot_numbers = {
             num for num, lot in lots_by_number.items()
             if lot.unit_price is not None and (lot.unit_price < lo or lot.unit_price > hi)
         }
 
+    settlement_path = output_path.with_suffix(".settlement.json")
+    if settlement_prompt is not None:
+        observed_states = {}
+        for window_lots in completed.values():
+            for observation in window_lots:
+                if observation.sold is not None:
+                    observed_states.setdefault(observation.lot_number, set()).add(observation.sold)
+        disputed = {label for label, states in observed_states.items() if len(states) > 1 and label in lots_by_number}
+        updates = reconcile_settlements(lots_by_number, windows, client, settlement_prompt,
+                                        bounds, settlement_path, provenance, disputed)
+        lots_by_number.update(updates)
+        confirmed_lot_numbers.update(updates)
+        for label in disputed - updates.keys():
+            lots_by_number[label] = lots_by_number[label].model_copy(update={
+                "sold": None, "sale_timestamp": None, "price_needs_review": True,
+            })
+
     for lot_number, lot in lots_by_number.items():
         applied_bounds = None if lot_number in confirmed_lot_numbers else bounds
         checked = _sanity_check(lot, bounds=applied_bounds)
+        if settlement_prompt is not None:
+            if checked.sold is not True:
+                checked = checked.model_copy(update={"unit_price": None, "total_price": None})
+            elif checked.unit_price == 0:
+                checked = checked.model_copy(update={"unit_price": None, "total_price": None,
+                                                      "price_needs_review": True})
         if checked.unit_price is not None and checked.num_animals and checked.num_animals > 0:
             data = checked.model_dump()
             data["total_price"] = price_to_cents(checked.unit_price) * checked.num_animals / 100
             checked = Lot(**data)
         lots_by_number[lot_number] = checked
 
-    lots = sorted(lots_by_number.values(), key=lambda l: l.lot_number)
+    if settlement_prompt is not None:
+        lots_by_number = finalize_board_evidence(lots_by_number, windows)
+    lots = sorted(lots_by_number.values(), key=lambda lot: lot_number_sort_key(lot.lot_number))
     _save(lots, output_path)
     _save_checkpoint_provenance(provenance, _checkpoint_meta_path(output_path))
+    write_json(quality_path, {"status": "complete", "provenance": provenance, "windows": window_report,
+                              "rejected_unmarked_ocr_ids": rejected_unmarked})
     progress_path.unlink(missing_ok=True)
+    if settlement_prompt is not None:
+        settlement_path.unlink(missing_ok=True)
     return lots
 
 
@@ -445,19 +490,15 @@ def _verify_lot(
     return price
 
 
-def _lot_has_window_support(lot_number: int, window: Window) -> bool:
+def _lot_has_window_support(lot_number: str, window: Window) -> bool:
     """Return whether the window text directly mentions this lot number."""
     text = window.combined_text
-    num = str(lot_number)
-    padded = num.zfill(2)
+    label = re.escape(str(lot_number))
     patterns = [
-        rf"\bLOTE\s*[:#-]?\s*0*{re.escape(num)}\b",
-        rf"\bLOTE\s*\|\s*[^|\n]*\|\s*VALORPORANIMAL\s*\|\s*0*{re.escape(num)}\b",
-        rf"\|\s*0*{re.escape(num)}\s*\|",
+        rf"\b(?i:LOTE)\s*[:#-]?\s*{label}(?![\w/-]|\.[A-Za-z0-9])",
+        rf"\b(?i:LOTE)\s*\|(?:[^|\n]*\|)*?\s*{label}\s*(?:\||$)",
     ]
-    if padded != num:
-        patterns.append(rf"\bLOTE\s*[:#-]?\s*{re.escape(padded)}\b")
-    return any(re.search(pattern, text, re.IGNORECASE) for pattern in patterns)
+    return any(re.search(pattern, text, re.MULTILINE) for pattern in patterns)
 
 
 def _parse_hhmmss(ts: str) -> int:
@@ -656,7 +697,7 @@ def _validate_lots(data: list[dict]) -> list[Lot]:
     return lots
 
 
-def _merge(lots_by_number: dict[int, Lot], new_lot: Lot) -> None:
+def _merge(lots_by_number: dict[str, Lot], new_lot: Lot) -> None:
     if new_lot.lot_number not in lots_by_number:
         lots_by_number[new_lot.lot_number] = new_lot
         return
@@ -672,13 +713,20 @@ def _merge(lots_by_number: dict[int, Lot], new_lot: Lot) -> None:
     observation = existing_data
     if new_rank > old_rank:
         observation = new_data
-    elif new_rank == old_rank and any(new_data[field] is not None for field in price_fields[:3]):
-        observation = new_data
+    elif new_rank == old_rank:
+        old_price_time = existing.price_timestamp or ""
+        new_price_time = new_lot.price_timestamp or ""
+        if (any(new_data[field] is not None for field in price_fields[:3])
+                and (not new_price_time or not old_price_time or new_price_time >= old_price_time)):
+            observation = new_data
 
     merged = {field: existing_data[field] if existing_data[field] is not None else new_data[field]
               for field in existing_data}
-    for field in (*price_fields, "sold"):
+    for field in (*price_fields, "sold", "sale_timestamp"):
         merged[field] = observation[field]
+
+    if existing.sold is new_lot.sold:
+        merged["sale_timestamp"] = max(filter(None, (existing.sale_timestamp, new_lot.sale_timestamp)), default=None)
 
     # Keep disagreements visible and out of confirmed-price statistics.
     if existing.sold is True and new_lot.sold is True:

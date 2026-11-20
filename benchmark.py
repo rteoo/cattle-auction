@@ -161,7 +161,7 @@ def run_extraction(
             client=client,
             prompt_path=PROMPTS_DIR / "extraction.txt",
             output_path=lots_path,
-            verify_prompt_path=PROMPTS_DIR / "verify.txt",
+            settlement_prompt_path=PROMPTS_DIR / "settlement.txt",
         )
     except Exception as e:
         elapsed = time.time() - start_time
@@ -226,7 +226,7 @@ def run_extraction(
         "lots_with_age": lots_with_age,
         "lots_with_timestamp": lots_with_timestamp,
         "metadata": metadata,
-        "lot_numbers": sorted([l.lot_number for l in lots]),
+        "lot_numbers": [lot.lot_number for lot in lots],
     }
 
     # Save per-model details

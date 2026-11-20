@@ -63,8 +63,27 @@ def coerce_price_value(value: object) -> float | None:
         raise ValueError("BRL amount cannot be represented") from exc
 
 
+_LOT_LABEL = re.compile(r"(?=[A-Za-z0-9./-]*[0-9])[A-Za-z0-9]+(?:[./-][A-Za-z0-9]+)*\Z")
+
+
+def normalize_lot_number(value: object) -> str:
+    if type(value) is int and value >= 0:
+        value = str(value)  # Legacy checkpoints used integers.
+    if isinstance(value, str):
+        label = value.strip()
+        if len(label) <= 32 and _LOT_LABEL.fullmatch(label):
+            return label
+    raise ValueError("expected a lot label containing digits")
+
+
+def lot_number_sort_key(label: str) -> tuple:
+    parts = re.split(r"([0-9]+)", label)
+    return tuple(int(part) if i % 2 else part.casefold()
+                 for i, part in enumerate(parts)), len(label), label
+
+
 class Lot(BaseModel):
-    lot_number: int = Field(ge=0)
+    lot_number: str
     sex: str | None = None  # macho, fêmea, misto
     category: str | None = None
     num_animals: int | None = Field(default=None, gt=0)
@@ -75,10 +94,16 @@ class Lot(BaseModel):
     sold: bool | None = None  # True = arrematado, False = não vendido/retirado, None = indefinido
     timestamp_start: str | None = None  # HH:MM:SS
     notes: str | None = None
+    sale_timestamp: str | None = None  # time of the explicit sale or no-sale decision
     raw_price: str | None = None
     price_basis: Literal["per_head", "per_arroba", "lot_total", "unknown"] | None = None
     price_needs_review: bool = False
     price_timestamp: str | None = None  # position of the quote or confirmed hammer price
+
+    @field_validator("lot_number", mode="before")
+    @classmethod
+    def validate_lot_number(cls, value):
+        return normalize_lot_number(value)
 
     @field_validator("category", mode="before")
     @classmethod
