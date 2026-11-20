@@ -50,7 +50,7 @@ Use a terminal session that stays open for a long job. If interrupted, run the
 same command again to reuse compatible checkpoints. Results are written to
 `/data/<video_id>/result_<video_id>.json`.
 
-Once the selected release includes SQLite history, run the CLI with
+Select v2.1.0 or a later release to use SQLite history. Run the CLI with
 `--sqlite-db /data/auction-history.sqlite3` to add results to the same database
 across jobs. Confirm the flag appears in `python /app/main.py --help` after
 upgrading. The `v2.0.0` default writes JSON and checkpoints.

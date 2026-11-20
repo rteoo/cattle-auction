@@ -40,7 +40,7 @@ summary table, together with the run's estimated cost.
 
 ## Quick start
 
-Run cattle-auction from the [v2.0.0 source release](https://github.com/rteoo/cattle-auction/releases/tag/v2.0.0).
+Run cattle-auction from the [v2.1.0 source release](https://github.com/rteoo/cattle-auction/releases/tag/v2.1.0).
 It needs Python 3.11 or later, [uv](https://docs.astral.sh/uv/), `ffmpeg`, and a
 [YouTube JavaScript runtime](https://github.com/yt-dlp/yt-dlp/wiki/EJS).
 Put Deno 2.3+ or Node.js 22+ on `PATH`. yt-dlp prefers Deno and can use Node.js
@@ -61,7 +61,7 @@ Clone the release tag and install the locked dependencies. This release locks
 `rapidocr-onnxruntime` at 1.4.4.
 
 ```bash
-git clone --branch v2.0.0 https://github.com/rteoo/cattle-auction.git
+git clone --branch v2.1.0 https://github.com/rteoo/cattle-auction.git
 cd cattle-auction
 uv sync --frozen                  # base dependencies
 uv sync --frozen --extra local    # optional: MLX Whisper, Apple Silicon only
@@ -215,8 +215,7 @@ statistics.
 
 ## SQLite price history
 
-SQLite history requires a source checkout with this feature or a release newer
-than v2.0.0.
+SQLite history is available starting with v2.1.0.
 
 Use the same `--sqlite-db` file across runs to build a local history. This works
 with single videos and batches. JSON output and checkpoints are still written.

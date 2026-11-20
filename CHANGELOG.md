@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.1.0] — 2026-11-20
+
+### Added
+
+- Save completed single-video and batch results to a dedicated SQLite file with `--sqlite-db`. Reruns update one video's snapshot while JSON and checkpoints remain available.
+- Query confirmed per-head prices by date, city, auctioneer, farm, and cattle category. The history stores prices in integer BRL cents and preserves exact lot labels.
+- Run the CLI on Oracle through the Coolify Compose bundle, with a persistent output volume and on-demand jobs. To enable SQLite on Oracle, select the v2.1.0 tag and its exact commit in the deployment settings.
+
+### Compatibility
+
+- SQLite is opt-in and uses Python's standard library. RapidOCR remains locked at 1.4.4.
+
 ## [2.0.0] — 2026-11-20
 
 ### Breaking change
