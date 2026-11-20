@@ -30,8 +30,8 @@ summary table, together with the run's estimated cost.
   mostly-silent audio.
 - Frame sampling on a fixed clock or at the moments the lot board changes.
 - Brazilian number handling: `3.100` is R$ 3,100, never R$ 3.10.
-- Defensive extraction: overlapping windows, duplicate merging, hallucination-burst
-  limits, and a second LLM check for statistically implausible prices.
+- Overlapping extraction windows, exact lot labels, OCR board-marker checks,
+  and a second pass for uncertain sale outcomes and hammer prices.
 - Auction metadata: date, city, auctioneer, farm, and auction type.
 - Batch mode over many videos with a comparison report.
 - Every stage is checkpointed; interrupted runs resume where they stopped, down to
@@ -40,8 +40,8 @@ summary table, together with the run's estimated cost.
 
 ## Quick start
 
-cattle-auction runs from source; there is no packaged release. It needs
-Python 3.11 or later, [uv](https://docs.astral.sh/uv/), `ffmpeg`, and a
+Run cattle-auction from the [v2.0.0 source release](https://github.com/rteoo/cattle-auction/releases/tag/v2.0.0).
+It needs Python 3.11 or later, [uv](https://docs.astral.sh/uv/), `ffmpeg`, and a
 [YouTube JavaScript runtime](https://github.com/yt-dlp/yt-dlp/wiki/EJS).
 Put Deno 2.3+ or Node.js 22+ on `PATH`. yt-dlp prefers Deno and can use Node.js
 when Deno is unavailable or unsupported. The locked Python dependencies include
@@ -57,10 +57,11 @@ brew install ffmpeg deno
 winget install Gyan.FFmpeg DenoLand.Deno
 ```
 
-Clone the repository and install the locked dependencies:
+Clone the release tag and install the locked dependencies. This release locks
+`rapidocr-onnxruntime` at 1.4.4.
 
 ```bash
-git clone https://github.com/rteoo/cattle-auction.git
+git clone --branch v2.0.0 https://github.com/rteoo/cattle-auction.git
 cd cattle-auction
 uv sync --frozen                  # base dependencies
 uv sync --frozen --extra local    # optional: MLX Whisper, Apple Silicon only
@@ -102,9 +103,14 @@ Keys are loaded from `.env` on every run. Only set the keys you need.
 | Extract lots | Each window goes to the LLM with a PT-BR prompt; lots are merged and sanity-checked |
 | Extract metadata | The opening windows plus the video title and description yield auction details |
 
-On-screen data takes priority over audio for lot number, head count, price, and
-sale status. Prices outside the auction's own Tukey fence are sent back to the
-LLM with their source evidence to be confirmed, corrected, or discarded.
+On-screen text helps identify exact lot labels, head counts, and price units.
+An OCR-only ID can be rejected when its source frame lacks a lot-board marker
+and other evidence does not support it. Explicit audio or visual evidence can
+confirm a sale. A board price may still be an open bid.
+
+The extractor reviews uncertain or conflicting outcomes and missing, flagged,
+or statistically unusual prices with nearby transcript and OCR. A revised
+decision must cite a timestamped source line. This review can add LLM calls.
 
 Frame indexes record fractional source timestamps. Scene mode also tries to
 retain the outgoing board shortly before a detected change. OCR metadata
@@ -166,7 +172,7 @@ Every run writes to `output/<video_id>/`:
 | `screenshots_<id>/`, `screenshots_<id>.json` | JPEG frames and their index |
 | `ocr_results_<id>.json` | Screen text per timestamp |
 | `lots_<id>.json` | Extracted lots |
-| `lots_<id>.quality.json` | Window validation statuses, including rejected rows and missing evidence |
+| `lots_<id>.quality.json` | Window validation statuses and a count of OCR-only lot IDs rejected by the board-marker check |
 | `metadata_<id>.json` | Date, city, auctioneer, farm, and auction type |
 | `result_<id>.json` | Final result: metadata, lots, and the run's estimated cost |
 
@@ -174,7 +180,7 @@ Each lot follows this schema:
 
 ```json
 {
-  "lot_number": "12",
+  "lot_number": "08B",
   "sex": "macho",
   "category": "garrote",
   "num_animals": 30,
@@ -184,13 +190,27 @@ Each lot follows this schema:
   "total_price": 96000.00,
   "sold": true,
   "timestamp_start": "01:24:35",
-  "notes": null
+  "notes": null,
+  "sale_timestamp": "01:26:10",
+  "raw_price": "R$ 3.200,00",
+  "price_basis": "per_head",
+  "price_needs_review": false,
+  "price_timestamp": "01:26:10"
 }
 ```
 
+As of v2.0.0, `lot_number` is a string. Treat `"0"`, `"00"`, `"11A"`, and
+`"08B"` as distinct labels. The lot parser accepts old integer IDs and converts
+them to strings. It cannot recover leading zeros or suffixes that old files
+did not store.
+
 `sold` is `true` for *arrematado*, `false` for withdrawn or unsold, and `null`
-when the video does not settle it. `total_price` is recomputed from
-`unit_price × num_animals` when the source does not state it.
+when the outcome is unclear. The CLI clears `unit_price` and `total_price`
+when there is no confirmed sale. When the per-head price and head count are known, it computes
+`total_price` from `unit_price × num_animals`. For price analysis, check
+`price_needs_review` and consult `raw_price`, `price_basis`, and the evidence
+timestamps when present. The CLI excludes flagged prices from confirmed-price
+statistics.
 
 ## Models and cost
 
@@ -221,28 +241,26 @@ minutes and local medium-model backends in about 20–40. Screenshots take 2–3
 minutes, OCR of ~600 frames 5–10, and extraction of ~30 windows 3–8. Downloads
 depend on the network.
 
-## Resume and checkpoints
+## Benchmarking
 
-Lot IDs are strings. Exported IDs preserve leading zeroes and letter suffixes. Old numeric checkpoints remain readable, with their original numeric values converted to strings.
+To score saved output, run `bench/analyze.py` on the result and reference files.
+It runs offline.
 
-The extractor reviews uncertain or conflicting outcomes and missing or
-flagged prices with the surrounding audio and OCR. A reviewed decision must
-cite a real timestamped source line. Prices without a confirmed sale are
-excluded from the result. The review can add LLM calls.
+```bash
+uv run --frozen python bench/analyze.py --reference PATH_TO_REFERENCE_JSON --result PATH_TO_RESULT_OR_LOTS_JSON
+```
 
-Replay one video's extraction from downloaded checkpoints and score it
-against a reference without sending the reference to the model:
+To compare a fresh extraction, run `bench/run_single.py` on saved transcript and
+OCR checkpoints. That command makes paid LLM calls.
 
 ```bash
 uv run --frozen python bench/run_single.py VIDEO_ID openai gpt-6-luna --reasoning-effort medium --input-dir PATH_TO_VIDEO_CHECKPOINTS
-uv run --frozen python bench/analyze.py --reference PATH_TO_REFERENCE_JSON --result PATH_TO_RESULT_OR_LOTS_JSON
 ```
 
 The scoring command accepts a lot array or an object containing `lots`.
 Use exact string IDs in new reference files. Numeric IDs in historical
 references can match a unique corresponding label, preserving distinct
 padded or suffixed labels in new data.
-
 
 For a paid extraction-only benchmark on cached transcript and OCR, compare
 GPT-6 Luna reasoning levels on the two included reference auctions:
@@ -254,18 +272,23 @@ uv run --frozen python bench/analyze.py
 
 Read hammer-price coverage and its sample count alongside price error.
 
+## Resume and checkpoints
+
 Each stage saves its result under `output/<video_id>/`. Downloads are reused
 once complete. The transcript, screenshot, OCR, lot, and metadata checkpoints
 also record the inputs that produced them, so a rerun recomputes a stage when
 its prompt, model, sampling setting, or source file changes and reuses it
 otherwise.
 
+- Upgrading to v2.0.0 can rerun lot extraction because the prompts and checkpoint
+  provenance changed. Compatible upstream checkpoints and downloaded media can
+  still be reused.
 - JSON checkpoints are written atomically, and an unreadable checkpoint is
   recomputed instead of stopping the run.
 - ffmpeg outputs are renamed into place only after a clean exit, so an
   interrupted conversion is never mistaken for a finished one.
-- If an LLM window or a Groq chunk fails, the stage stops, but the finished
-  windows and chunks are kept; the rerun only sends what did not finish.
+- If an LLM window, sale-review batch, or Groq chunk fails, completed work
+  is kept. A rerun with matching inputs resumes from the remaining work.
 - `--no-resume` clears derived checkpoints but keeps downloaded media.
 
 A stage served from its checkpoint costs nothing, so a fully resumed run reports
@@ -294,13 +317,16 @@ offline test suite on Linux with Python 3.11.
   `whisper-cli` on `PATH`; its model is auto-detected under `~/.cache/whisper/`
   or `/opt/homebrew/share/whisper-cpp/`, and otherwise must be passed with
   `--cpp-model`.
-- **Broadcast layouts:** the extraction prompt is tuned for the common lot-board
-  overlay (`LOTE | fazenda | VALORPORANIMAL | lote | R$ | preço | ...`). Other
-  layouts rely more on the audio and may extract less reliably.
+- **Broadcast layouts:** the lot-ID filter looks for lot markers across
+  layouts. Some price and category checks require a recognizable per-head
+  board. When the layout is unfamiliar, extraction may rely more on the audio.
+- **Audio-only recaps:** a sale recap with no lot start or identifying details
+  can be linked to the sole matching zero-padded board label. Check the video
+  when padded and unpadded labels may refer to separate lots.
 - **Scene sampling:** the adaptive threshold is calibrated on synthetic lot
   boards, not yet on real broadcasts with live camera feeds behind the overlay.
-- **Arroba prices:** prices quoted per arroba (@) are recorded in `notes`, not
-  converted to a price per head.
+- **Arroba prices:** quotes may be retained in `raw_price` with
+  `price_basis: "per_arroba"`. The pipeline does not convert them to a price per head.
 - **Cost estimates:** per-token and per-hour prices are fixed in
   `pipeline/costs.py` and drift with provider pricing.
 - **Live verification:** YouTube downloads, ffmpeg, OCR, and LLM or Groq calls
@@ -323,7 +349,7 @@ The benchmark harness in [`bench/`](bench) compares extraction models against a
 human reference; `benchmark.py` runs a single-video comparison.
 
 Releases use `release.py`. Run the dry run first to review the proposed
-version, tests, package contents, and staged paths without changing Git state:
+version and planned checks before creating a release commit or tag:
 
 ```bash
 uv run --frozen python release.py --dry-run

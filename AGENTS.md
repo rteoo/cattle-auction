@@ -144,7 +144,7 @@ Pipeline stages write resumable artifacts under `output/<video_id>/`.
 | Screenshots | `screenshots_<id>.json`, `screenshots_<id>/` |
 | Batch summary (cost) | `batches/<name>/batch_summary.json` → `totals.cost_usd` |
 | OCR | `ocr_results_<id>.json` |
-| Lot extraction | `lots_<id>.json`; `lots_<id>.windows.json` holds per-window progress until the stage completes |
+| Lot extraction | `lots_<id>.json` and `lots_<id>.quality.json`; `lots_<id>.windows.json` saves window progress and `lots_<id>.settlement.json` saves sale-review batches until the stage completes |
 | Metadata | `metadata_<id>.json` |
 | Final result | `result_<id>.json` |
 | Batch summary | `batches/<batch_name>/batch_summary.json`, `batches/<batch_name>/comparison.md` |
@@ -196,14 +196,19 @@ cattle-auction/
 │   ├── checkpoint.py         ← atomic JSON checkpoint writes
 │   ├── ocr.py                ← RapidOCR screenshot text extraction
 │   ├── aggregator.py         ← transcript/OCR merge into overlapping windows
+│   ├── board_evidence.py     ← lot-marker filter and board checks
+│   ├── settlement.py        ← evidence-based sale and hammer-price review
 │   └── extractor.py          ← LLM clients, JSON parsing, merge, sanity checks
 ├── prompts/
 │   ├── extraction.txt        ← PT-BR lot extraction prompt
 │   ├── metadata.txt          ← PT-BR metadata extraction prompt
-│   └── verify.txt            ← outlier price verification prompt
+│   ├── settlement.txt        ← PT-BR sale and hammer-price review prompt
+│   └── verify.txt            ← outlier verifier for callers without settlement review
 └── tests/
     ├── test_lot_model.py     ← model validation and BR price coercion
     ├── test_extractor.py     ← response parsing, merge, sanity checks
+    ├── test_board_evidence.py ← lot-marker checks and conflicting board evidence
+    ├── test_settlement.py    ← sale and hammer-price evidence review
     ├── test_aggregator.py    ← time windows and OCR/transcript merging
     ├── test_summary.py       ← summary statistics
     ├── test_batch.py         ← batch URL loading, sequential runs, reports
@@ -226,26 +231,30 @@ cattle-auction/
 
 ```python
 class Lot(BaseModel):
-    lot_number: int
-    sex: str
-    category: str
-    num_animals: int
+    lot_number: str
+    sex: str | None = None
+    category: str | None = None
+    num_animals: int | None = Field(default=None, gt=0)
     age_months: int | None = None
-    breed: str
+    breed: str | None = None
     unit_price: float | None = None
     total_price: float | None = None
     sold: bool | None = None
     timestamp_start: str | None = None
     notes: str | None = None
+    sale_timestamp: str | None = None
+    raw_price: str | None = None
+    price_basis: Literal["per_head", "per_arroba", "lot_total", "unknown"] | None = None
+    price_needs_review: bool = False
+    price_timestamp: str | None = None
 ```
 
 Important invariants:
 
-- `lot_number`, `sex`, `category`, `num_animals`, and `breed` are required.
+- Only `lot_number` is required. Legacy nonnegative integer labels validate as strings. Preserve case, leading zeros, and suffixes for labels supplied as strings.
 - `category` is normalized for common plurals such as `garrotes -> garrote`.
-- Brazilian price strings use dot as thousands separator and comma as decimal separator.
-- Numeric prices below 100 are usually LLM mis-parses of Brazilian thousands formatting and are multiplied by 1000.
-- `sold=True` means arrematado; `sold=False` means not sold/withdrawn; `sold=None` means unknown.
+- BRL parsing uses cents and recognizes strings such as `"3.100"` and `"1.800,50"`. Numeric amounts keep their magnitude.
+- `sold=True` means arrematado, `sold=False` means unsold or withdrawn, and `sold=None` means unknown.
 
 ## Extraction Rules
 
@@ -255,15 +264,13 @@ Important invariants:
 
 - `_parse_response()` accepts a JSON array even if the LLM wraps it in extra text.
 - Each prompt includes already-found lot numbers so the LLM can skip duplicates.
-- `_merge()` deduplicates by `lot_number`.
-- Each finished window's lots are saved to `lots_<id>.windows.json` under the stage provenance. A failed window still fails the stage, but the retry only re-sends unfinished windows; the file is deleted once `lots_<id>.json` is written.
-- Non-price fields prefer first non-null values.
-- Price fields prefer later non-null values because later windows often contain final hammer prices.
-- `sold=True` is final; explicit `sold=False` is preserved over unknown.
+- Merge windows by exact label. Descriptive fields keep their first known values, and the merge initially prefers confirmed sales over explicit no-sales and unknown outcomes. Conflicting outcomes and prices can trigger a second pass.
+- Keep completed windows and sale-review batches under matching stage provenance. Reuse them after interruption and remove the progress files after saving completed output.
 - Single-window hallucination bursts are limited by `_MAX_NEW_LOTS_PER_WINDOW`.
-- Post-merge price bounds use Tukey IQR on the auction's own observed unit prices.
-- Outlier prices can be rechecked with `prompts/verify.txt` before being kept, corrected, or nulled.
-- `total_price` is recomputed from `unit_price * num_animals` when needed.
+- The board-marker filter can discard an OCR-only ID anchored to an unmarked frame when board or audio evidence does not support the ID.
+- In the CLI, `prompts/settlement.txt` reviews uncertain outcomes and missing, flagged, or outlying prices against nearby audio and OCR. A changed decision must cite a timestamped source line. Tukey IQR bounds use observed, unflagged per-head prices from confirmed sales.
+- Remaining disputed outcomes are unknown. The CLI clears structured prices for unsold or unresolved lots and recomputes total from per-head price and head count when available.
+- An audio-only recap without an independent lot start or descriptive attributes may be associated with the sole numerically equivalent padded board label. Preserve independently evidenced labels as separate lots.
 
 When changing extraction behavior, update or add tests in `tests/test_extractor.py` and keep domain examples in PT-BR where that improves clarity.
 
