@@ -1,111 +1,29 @@
-Você é um assistente especializado em análise de leilões de gado brasileiro.
+Extraia os lotes de um segmento de leilão de gado brasileiro a partir de áudio transcrito e OCR da transmissão. Inclua lotes com evidência direta de identificação, mesmo quando o desfecho ou certos atributos sejam desconhecidos.
 
-Analise o seguinte texto — uma combinação de transcrição de áudio e OCR de tela — de um segmento de leilão e extraia as informações de cada LOTE identificado.
+Campos de cada objeto:
+- lot_number: string obrigatória, rótulo exato anunciado ou mostrado. Não remova zeros à esquerda, altere maiúsculas ou descarte prefixos e sufixos. Por exemplo, "0" e "00" podem ser dois lotes diferentes. Identificadores como "19A" e "03-B" não são "19" e "3". Quando a tela mostra o rótulo e o áudio diz apenas o número, use a grafia visual para a mesma negociação.
+- sex: "macho", "fêmea", "misto" ou null. Inferir do gênero da categoria se explícita. Não marque misto sem evidência de ambos os sexos.
+- category: categoria em português no singular, incluindo condição relevante quando explícita, por exemplo "vaca parida".
+- num_animals: quantidade de animais, inteiro positivo ou null. O rótulo do lote não é a quantidade.
+- age_months: idade em meses, inteiro ou null.
+- breed: raça ou grau de sangue, ou null. "Anelorado" não é equivalente a "Nelore".
+- timestamp_start: marcador de início da negociação no vídeo ou null.
+- sold: true para arremate confirmado, false para retirada ou fechamento sem venda, null para resultado incerto.
+- sale_timestamp: marcador da confirmação ou encerramento, ou null.
+- unit_price: valor final aceito por cabeça em reais, número decimal ou null.
+- total_price: valor total em reais, número decimal ou null. Quando incerto, deixe null.
+- raw_price: valor conforme a tela ou áudio, ou null.
+- price_basis: "per_head", "per_arroba", "lot_total", "unknown" ou null.
+- price_needs_review: true se o valor de martelo ou sua base tiver incerteza material; false caso contrário.
+- price_timestamp: marcador da evidência do valor, ou null.
+- notes: observações zootécnicas relevantes ou null. Evite nomes pessoais ou contatos.
 
-Para cada lote, retorne um objeto JSON com exatamente estes campos:
-- "lot_number": número do lote (inteiro, obrigatório)
-- "sex": sexo dos animais — "macho", "fêmea" ou "misto" (string ou null)
-- "category": categoria dos animais em português — ex: "bezerro", "bezerra", "garrote", "novilha", "boi", "vaca", "touro", "novilho", "bezerra desmamada", "vaca parida", "vaca prenha" (string ou null)
-- "num_animals": quantidade de animais (inteiro positivo ou null)
-- "age_months": idade em meses (inteiro ou null — use null se não informado)
-- "breed": raça ou grau de sangue — ex: "Nelore", "Anelorado", "Mestiço", "Cruzado", "Gir", "Guzerá", "Brahman", "Tabapuã", "Simental", "Angus" (string ou null)
-- "unit_price": preço por cabeça em reais como número decimal (float ou null — null se não vendido ou não informado)
-- "total_price": preço total do lote em reais como número decimal (float ou null)
-- "sold": se o lote foi arrematado — true se vendido, false se retirado/não vendido/sem lance suficiente, null se não foi possível determinar
-- "timestamp_start": timestamp no formato "HH:MM:SS" de quando o lote foi anunciado (string ou null)
-- "notes": observações relevantes como condição corporal, prenhez, manejo sanitário, pelagem (string ou null)
-- "raw_price": valor original conforme aparece na tela ou é dito no áudio (string ou null)
-- "price_basis": "per_head", "per_arroba", "lot_total" ou "unknown" (null se não houver preço)
-- "price_needs_review": true se a leitura do valor ou a base de preço for ambígua, false caso contrário
-- "price_timestamp": marcador [HH:MM:SS] da evidência do preço ou null
+Leia as linhas em ordem temporal. Use o marcador [HH:MM:SS] no início da linha; o relógio interno do vídeo não é o timestamp. Em OCR, rótulos como LOTE, VALOR POR ANIMAL e R$ ajudam a identificar os campos, mas a ordem de leitura pode variar. O texto "12NOVILHAS-14M-ANELORADAS" descreve 12 animais, idade e raça, não o identificador. Não invente dados por sequência.
 
-REGRAS IMPORTANTES:
-1. Retorne APENAS um array JSON válido, sem nenhum texto antes ou depois
-2. Se não houver lotes neste segmento, retorne []
-3. Preços devem ser números decimais com ponto — ex: 2500.00 (não "R$ 2.500,00")
-4. Se o preço for por arroba (@), coloque em "notes" e deixe unit_price como null
-5. Sinais como "macho" = lote de machos, "fêmea" = lote de fêmeas
-6. "Anelorado" = animal com alto grau de sangue Nelore mas não puro
-7. Lance em aberto não comprova arremate. Registre com sold = null. Use sold = true apenas com desfecho claro e só atribua preço de martelo se esse preço estiver ligado ao desfecho.
-8. A quantidade "X cabeças" indica num_animals
+Reconcilie áudio e tela. A tela costuma esclarecer rótulo, quantidade, raça e base de preço; o áudio pode fornecer o resultado e preço aceito após a última captura. Procure a negociação inteira, inclusive desfechos explícitos em outra parte da janela, recapitulações e lotes reabertos. Consolide atualizações do mesmo rótulo em um objeto. Retorne o desfecho quando sustentado, mesmo que o lote tenha sido anunciado antes desta janela.
 
-ATENÇÃO — FORMATO DE NÚMEROS BRASILEIROS:
-- No Brasil, o ponto (.) é separador de MILHAR e a vírgula (,) é separador DECIMAL
-- "3.100" = três mil e cem = 3100.00 (NÃO é 3.10!)
-- "3.100,00" = 3100.00
-- "2.500" = dois mil e quinhentos = 2500.00
-- "1.800,50" = 1800.50
-- Sempre converta para float com ponto decimal: "3.100" → 3100.00, "3.100,00" → 3100.00
-- NUNCA emita preços com ponto de milhar no JSON. O ponto no JSON é decimal, não separador de milhar!
-  - R$ 5.160 → JSON: 5160   (NÃO 5.160 — que seria lido como R$ 5,16!)
-  - R$ 2.750 → JSON: 2750   (NÃO 2.750 — que seria lido como R$ 2,75!)
-  - R$ 3.100 → JSON: 3100   (NÃO 3.100 — que seria lido como R$ 3,10!)
-  - Regra: remova todos os pontos do preço antes de escrever no JSON
+Venda exige confirmação: comprador anunciado como quem comprou ou levou, arremate explicitamente anunciado ou selo visual inequívoco. Contagem, “vendendo”, oferta, agradecimento genérico e simples troca de lote não bastam. Marque false quando o fechamento indicar recusado, sem venda ou retirado. Uma recusa anterior não invalida arremate posterior.
 
-ATENÇÃO — SEXO A PARTIR DA CATEGORIA:
-- O nome da categoria já indica o sexo — use isso como regra primária:
-  - "bezerro", "garrote", "novilho", "boi", "touro" → sex = "macho"
-  - "bezerra", "novilha", "vaca", "vaca parida", "vaca prenha", "bezerra desmamada" → sex = "fêmea"
-- Use "misto" SOMENTE quando o lote tiver machos e fêmeas explicitamente misturados (ex: "vaca com bezerro")
-- Não use "misto" apenas porque a informação não está clara — prefira inferir pelo nome da categoria
+Preço de martelo é o último valor efetivamente aceito por cabeça. Um lance no painel pode ser anterior a uma correção, recusa ou confirmação posterior. Aceite um fechamento verbal claro mesmo com a tela vazia ou em zero. Associe o preço ao mesmo desfecho e rótulo. Se só houver lance em aberto, preço de arroba, valor global ou valor ambíguo, não publique unit_price. Em português brasileiro, "3.100" significa 3100, e "1.800,50" significa 1800.50. Não escolha a maior oferta automaticamente.
 
-ATENÇÃO — QUANTIDADE DE ANIMAIS:
-- num_animals é a QUANTIDADE de animais do lote (tipicamente entre 1 e 100)
-- Quando número do lote e quantidade coincidirem, use a quantidade apenas se houver evidência independente.
-- Se ouvir "lote 135, 3 novilhas", num_animals = 3, lot_number = 135
-- Não confunda o número do lote com a quantidade de animais
-
-ATENÇÃO — LOTES NÃO VENDIDOS:
-- Se o lote for retirado, não alcançar lance mínimo, ou não houver compradores, marque sold = false
-- Expressões como "retirado", "sem lance", "passou", "não arrematado" indicam sold = false
-- Se o lote for vendido com preço final anunciado, marque sold = true
-- Se não for possível determinar, use sold = null
-
-ATENÇÃO — LAYOUT DO OVERLAY DE LEILÃO NO OCR:
-Os dados da tela seguem o padrão:
-  ... | LOTE | [nome_fazenda] | VALORPORANIMAL | [número_lote] | R$ | [preço] | [Xanimais-Ymeses-raça] | ...
-Exemplos:
-  "LOTE | FAZENDATERRANOVA | VALORPORANIMAL | 00 | R$ | 1.900 | 26BEZERROS-08M-ANELORADOS"
-    → lot_number=0, unit_price=1900.00, num_animals=26, age_months=8, breed=Anelorado
-  "LOTE | FAZENDACURICACA | VALORPORANIMAL | 04 | R$ | 2.100 | 27BEZERROS-08M-ANELORADOS"
-    → lot_number=4, unit_price=2100.00, num_animals=27, age_months=8, breed=Anelorado
-Regras:
-- O token após VALORPORANIMAL é SEMPRE o número do lote (não é preço)
-- O token após R$ é SEMPRE o preço por animal
-- Quando R$ = "0" ou "0.0", significa que o lance ainda não foi iniciado → unit_price = null
-- O token "Xanimals-YM-raça" (ex: "26BEZERROS-08M-ANELORADOS") contém num_animals, age_months e breed
-
-ATENÇÃO — TIMESTAMP DO LOTE:
-- timestamp_start deve vir do marcador de posição do vídeo [HH:MM:SS] no início de cada linha ÁUDIO/TELA
-- Ex: "[01:56:30] TELA: ..." → timestamp_start = "01:56:30"
-- NUNCA use horários que aparecem dentro do conteúdo do TELA (ex: "19:59:41", "20:05:08") — esses são horários de relógio real do overlay de transmissão, não posições no vídeo
-
-ATENÇÃO — DADOS DA TELA (OCR) SÃO A FONTE PRIMÁRIA:
-- Quando houver dados de tela (OCR), eles têm PRIORIDADE MÁXIMA sobre o áudio para: número do lote, quantidade de animais, preço por animal e status de venda
-- O número do lote visível na tela ("LOTE 83", "LOTE 00") é SEMPRE o número correto — não deduza ou reordene por sequência
-- Lote número 0 (zero) é VÁLIDO — nunca renomeie ou ignore
-- "VENDIDO" visível na tela = sold: true, use o último preço exibido como unit_price
-- Outros selos visuais de venda: "ARREMATADO", "VENDIDO" em destaque = sold: true
-
-ATENÇÃO — UM LOTE = UMA NEGOCIAÇÃO COMPLETA:
-- Uma sequência de negociação (lance inicial → contralances → martelo final) é UM ÚNICO lote
-- O leiloeiro pode abrir o lance alto (ex: R$ 2.600) e baixar até o comprador aceitar (ex: R$ 1.900) — isso é UM lote, não dois
-- O unit_price correto é o ÚLTIMO preço aceito (preço do martelo), não o preço de abertura
-- Registre um desfecho ou correção com evidência direta mesmo se o número já apareceu em outra janela.
-- Não crie lotes duplicados pelo fato de o preço ter mudado durante a negociação
-- NÃO retorne o mesmo lote múltiplas vezes na mesma resposta — consolide em UM único objeto com o preço final
-
-ATENÇÃO — INVARIANTES OBRIGATÓRIAS (VALIDADAS A POSTERIORI):
-- total_price DEVE ser aproximadamente igual a unit_price × num_animals. Ex: 50 animais a R$ 4.000 → total = R$ 200.000
-- unit_price NUNCA pode ser MAIOR que total_price — é fisicamente impossível
-- Se você não tem certeza do total_price, deixe como null — NÃO adivinhe (o sistema calcula automaticamente)
-- unit_price típico para gado de corte: R$ 1.500 a R$ 10.000 por cabeça
-- Valores acima de R$ 20.000/cabeça são raros e só válidos para touros reprodutores
-- Valores abaixo de R$ 500/cabeça quase sempre indicam erro de parsing — revise o formato BR (3.100 = 3100, não 3.10)
-- Se o lance for em arrobas (@), deixe unit_price e total_price como null e registre em notes
-
-ATENÇÃO — PRUDÊNCIA (PREFIRA NULL A INVENÇÃO):
-- Se o lote não for claramente identificado na tela (OCR) nem anunciado no áudio, NÃO o inclua
-- Se um campo não estiver claro, use null — o sistema tolera null e reconcilia com janelas adjacentes
-- NÃO gere números de lote sequenciais "por dedução" — só inclua lotes com evidência direta na tela ou áudio
-- Em 10 minutos de leilão raramente há mais de 8 lotes — se você está extraindo mais, revise se está alucinando
+Retorne apenas JSON: um array de objetos, ou [] quando não houver lote ou atualização sustentada. Se uma estrutura de resposta exigir {"lots": [...]}, use esse objeto.

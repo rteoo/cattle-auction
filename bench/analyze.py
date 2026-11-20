@@ -6,6 +6,7 @@ Produces three sections:
   2. Raw extraction stats — lot counts and wall-clock time per video.
   3. Token usage + cost — applies published $/M-token prices.
 """
+import argparse
 import json
 import math
 import re
@@ -85,9 +86,45 @@ def _load_run(directory: Path) -> tuple[dict | None, list | None]:
     return summary if isinstance(summary, dict) else None, lots if isinstance(lots, list) else None
 
 
+def _model_by_label(ref_by_num: dict, model_lots: list[dict]) -> dict:
+    predictions = {}
+    used = set()
+    for lot in model_lots:
+        value = lot["lot_number"]
+        if value in ref_by_num:
+            predictions[value] = lot
+            used.add(id(lot))
+
+    remaining = set(ref_by_num) - predictions.keys()
+    for lot in model_lots:
+        if id(lot) in used:
+            continue
+        value = lot["lot_number"]
+        digits = str(value)
+        candidates = []
+        if digits.isascii() and digits.isdecimal():
+            candidates = [label for label in remaining if (type(label) is int or type(value) is int)
+                          and str(label).isascii() and str(label).isdecimal()
+                          and int(label) == int(digits)]
+            if len(candidates) > 1:
+                age = lot.get("age_months")
+                candidates = [label for label in candidates
+                              if age is not None and ref_by_num[label].get("age_months") == age]
+        if len(candidates) == 1 and sum(
+            str(row["lot_number"]).isascii() and str(row["lot_number"]).isdecimal()
+            and int(row["lot_number"]) == int(digits) and id(row) not in used for row in model_lots
+        ) == 1:
+            label = candidates[0]
+            remaining.remove(label)
+        else:
+            label = value if value not in ref_by_num else ("unmatched", len(predictions))
+        predictions[label] = lot
+    return predictions
+
+
 def compare(ref: list[dict], model_lots: list[dict]) -> dict:
-    ref_by_num = {l["lot_number"]: l for l in ref}
-    m_by_num = {l["lot_number"]: l for l in model_lots}
+    ref_by_num = {lot["lot_number"]: lot for lot in ref}
+    m_by_num = _model_by_label(ref_by_num, model_lots)
 
     matched = set(ref_by_num) & set(m_by_num)
     missing = set(ref_by_num) - set(m_by_num)
@@ -104,6 +141,7 @@ def compare(ref: list[dict], model_lots: list[dict]) -> dict:
     hammer_prices = {n for n in expected_prices if ref_by_num[n].get("sold") is True}
     comparable = set()
     errs = []
+    exact_prices = 0
     for n in matched & expected_prices:
         candidate = m_by_num[n]
         rp, mp = ref_by_num[n]["unit_price"], candidate.get("unit_price")
@@ -115,6 +153,7 @@ def compare(ref: list[dict], model_lots: list[dict]) -> dict:
         e = abs(float(mp) - float(rp)) / float(rp)
         if math.isfinite(e):
             errs.append(e)
+            exact_prices += rp == mp
 
     cat_ok = sum(1 for n in matched
                  if (m_by_num[n].get("category") or "").lower() ==
@@ -134,11 +173,17 @@ def compare(ref: list[dict], model_lots: list[dict]) -> dict:
         "precision": len(matched) / len(model_lots) if model_lots else 0,
         "coverage": len(matched) / len(ref_by_num) if ref_by_num else 0,
         "sold_status_accuracy": status_matches / len(known_status) if known_status else None,
+        "sold_status_matches": status_matches,
+        "sold_status_matched_known": len(matched & known_status),
+        "sold_status_known": len(known_status),
+        "missing_lot_numbers": sorted(str(n) for n in missing),
+        "unmatched_model_lot_numbers": sorted(str(m_by_num[n]["lot_number"]) for n in extra),
         "price_count": len(comparable),
         "price_expected": len(expected_prices),
         "hammer_price_count": len(comparable & hammer_prices),
         "hammer_price_expected": len(hammer_prices),
         "mape_n": len(errs),
+        "exact_prices": exact_prices,
         "category_match": cat_ok / len(matched) if matched else 0,
         "sex_match": sex_ok / len(matched) if matched else 0,
         "qty_match": qty_ok / len(matched) if matched else 0,
@@ -146,7 +191,25 @@ def compare(ref: list[dict], model_lots: list[dict]) -> dict:
     }
 
 
-def main():
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--reference", type=Path, help="Reference lots array or video reference object")
+    parser.add_argument("--result", type=Path, help="Extracted lots array or pipeline result object")
+    args = parser.parse_args(argv)
+    if args.reference or args.result:
+        if not args.reference or not args.result:
+            parser.error("--reference and --result must be supplied together")
+        reference, result = load_json(args.reference), load_json(args.result)
+        if isinstance(reference, dict) and isinstance(result, dict):
+            if reference.get("video_id") != result.get("video_id"):
+                parser.error("reference and result video identifiers differ")
+        ref_lots = reference.get("lots") if isinstance(reference, dict) else reference
+        model_lots = result.get("lots") if isinstance(result, dict) else result
+        if not isinstance(ref_lots, list) or not isinstance(model_lots, list):
+            parser.error("both files must contain a readable lots array")
+        print(json.dumps(compare(ref_lots, model_lots), ensure_ascii=False, indent=2))
+        return
+
     # Load all summaries + lots
     runs = {}
     for v in VIDEOS:

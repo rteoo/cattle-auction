@@ -117,7 +117,7 @@ class TestParseResponse:
     def test_bracketed_preamble_does_not_hide_valid_array(self):
         """A bracketed note before the payload must not make extraction empty."""
         lots = _parse_response("Summary [done].\n" + self.VALID)
-        assert [lot.lot_number for lot in lots] == [1]
+        assert [lot.lot_number for lot in lots] == ['1']
 
     def test_invalid_json_raises_parse_failure(self):
         with pytest.raises(ValueError, match="JSON array"):
@@ -130,8 +130,8 @@ class TestParseResponse:
         )
         lots = _parse_response(raw)
         assert len(lots) == 2
-        assert lots[0].lot_number == 1
-        assert lots[1].lot_number == 2
+        assert lots[0].lot_number == "1"
+        assert lots[1].lot_number == "2"
 
     def test_invalid_row_inside_valid_json_fails_the_window(self):
         raw = '[{"bad":"data"}, {"lot_number":2,"sex":"macho","category":"bezerro","num_animals":3,"breed":"Nelore"}]'
@@ -140,7 +140,7 @@ class TestParseResponse:
 
     def test_schema_response_accepts_provisionally_identified_lot(self):
         (lot,) = _parse_response('{"lots":[{"lot_number":0,"num_animals":null}]}')
-        assert lot.lot_number == 0
+        assert lot.lot_number == "0"
         assert lot.num_animals is None
 
     def test_openai_sends_strict_schema_for_lot_windows(self, monkeypatch):
@@ -159,6 +159,7 @@ class TestParseResponse:
         item = spec["schema"]["properties"]["lots"]["items"]
         assert item["additionalProperties"] is False
         assert set(item["required"]) == set(item["properties"])
+        assert item["properties"]["lot_number"]["type"] == "string"
         assert "default" not in item["properties"]["num_animals"]
 
     def test_sold_field_parsed(self):
@@ -180,8 +181,8 @@ class TestMerge:
         store = {}
         lot = _make_lot(lot_number=1)
         _merge(store, lot)
-        assert 1 in store
-        assert store[1] is lot
+        assert "1" in store
+        assert store["1"] is lot
 
     def test_non_price_non_null_not_overwritten(self):
         """First non-null wins for stable fields like breed."""
@@ -190,7 +191,7 @@ class TestMerge:
         _merge(store, first)
         second = _make_lot(lot_number=1, breed="Anelorado")
         _merge(store, second)
-        assert store[1].breed == "Nelore"
+        assert store["1"].breed == "Nelore"
 
     def test_price_updated_by_later_window(self):
         """Prices use last-non-null: final hammer price beats opening ask."""
@@ -199,7 +200,7 @@ class TestMerge:
         _merge(store, first)
         second = _make_lot(lot_number=1, unit_price=1900.0)
         _merge(store, second)
-        assert store[1].unit_price == 1900.0
+        assert store["1"].unit_price == 1900.0
 
     def test_price_not_cleared_by_later_null(self):
         """A later window with null price doesn't wipe an established price."""
@@ -208,7 +209,7 @@ class TestMerge:
         _merge(store, first)
         second = _make_lot(lot_number=1, unit_price=None)
         _merge(store, second)
-        assert store[1].unit_price == 2600.0
+        assert store["1"].unit_price == 2600.0
 
     def test_total_price_updated_by_later_window(self):
         store = {}
@@ -216,7 +217,7 @@ class TestMerge:
         _merge(store, first)
         second = _make_lot(lot_number=1, total_price=49400.0)
         _merge(store, second)
-        assert store[1].total_price == 49400.0
+        assert store["1"].total_price == 49400.0
 
     def test_multiple_null_fields_filled(self):
         store = {}
@@ -224,8 +225,8 @@ class TestMerge:
         _merge(store, first)
         second = _make_lot(lot_number=1, unit_price=3000.0, age_months=12)
         _merge(store, second)
-        assert store[1].unit_price == 3000.0
-        assert store[1].age_months == 12
+        assert store["1"].unit_price == 3000.0
+        assert store["1"].age_months == 12
 
     def test_sold_false_not_overwritten_by_none(self):
         """sold=False is a value — None should not overwrite it."""
@@ -234,7 +235,7 @@ class TestMerge:
         _merge(store, first)
         second = _make_lot(lot_number=1, sold=None)
         _merge(store, second)
-        assert store[1].sold is False
+        assert store["1"].sold is False
 
     def test_sold_true_overrides_false(self):
         """sold=True is a final determination — overrides prior False."""
@@ -243,20 +244,20 @@ class TestMerge:
         _merge(store, first)
         second = _make_lot(lot_number=1, sold=True)
         _merge(store, second)
-        assert store[1].sold is True
+        assert store["1"].sold is True
 
     def test_sold_true_remains_final_when_later_window_says_false(self):
         """A later contradictory window must not undo a completed sale."""
         store = {}
         _merge(store, _make_lot(lot_number=1, sold=True))
         _merge(store, _make_lot(lot_number=1, sold=False))
-        assert store[1].sold is True
+        assert store["1"].sold is True
 
     def test_later_open_bid_does_not_overwrite_confirmed_sale(self):
         store = {}
         _merge(store, _make_lot(sold=True, unit_price=2400, price_timestamp="00:02:10"))
         _merge(store, _make_lot(unit_price=3100, price_timestamp="00:02:30"))
-        assert (store[1].sold, store[1].unit_price, store[1].price_timestamp) == (
+        assert (store["1"].sold, store["1"].unit_price, store["1"].price_timestamp) == (
             True, 2400, "00:02:10",
         )
 
@@ -264,14 +265,14 @@ class TestMerge:
         store = {}
         _merge(store, _make_lot(unit_price=3100))
         _merge(store, _make_lot(sold=True))
-        assert store[1].sold is True
-        assert store[1].unit_price is None
+        assert store["1"].sold is True
+        assert store["1"].unit_price is None
 
     def test_disagreeing_confirmed_sales_flag_price_for_review(self):
         store = {}
         _merge(store, _make_lot(sold=True, unit_price=2400))
         _merge(store, _make_lot(sold=True, unit_price=3100))
-        assert store[1].price_needs_review
+        assert store["1"].price_needs_review
 
 
 # ── _sanity_check: shape invariants (no bounds) ──────────────────────────────
@@ -653,7 +654,7 @@ class TestExtractLotsBurstGuard:
             output_path=output_path,
         )
 
-        assert [lot.lot_number for lot in lots] == list(range(1, 14))
+        assert [lot.lot_number for lot in lots] == [str(n) for n in range(1, 14)]
 
     def test_unsupported_burst_is_rejected_and_can_resume(self, tmp_path):
         prompt = tmp_path / "prompt.txt"
@@ -669,7 +670,7 @@ class TestExtractLotsBurstGuard:
         assert report["windows"][0]["status"] == "rejected"
         assert not output.exists()
         supported = _SequenceClient(['{"lots":[{"lot_number":42}]}'])
-        assert [lot.lot_number for lot in extract_lots(windows, supported, prompt, output)] == [42]
+        assert [lot.lot_number for lot in extract_lots(windows, supported, prompt, output)] == ['42']
 
 
 class _FailingAfterFirstClient:
@@ -774,7 +775,7 @@ class TestExtractLotsCheckpoint:
             first,
             prompt_path,
             output_path,
-        )] == [1]
+        )] == ["1"]
 
         cached = _ProvenanceClient(first_response, fail_on_call=True)
         assert [lot.lot_number for lot in extract_lots(
@@ -782,7 +783,7 @@ class TestExtractLotsCheckpoint:
             cached,
             prompt_path,
             output_path,
-        )] == [1]
+        )] == ["1"]
         assert cached.calls == 0
 
         changed = _ProvenanceClient(second_response)
@@ -791,7 +792,7 @@ class TestExtractLotsCheckpoint:
             changed,
             prompt_path,
             output_path,
-        )] == [2]
+        )] == ["2"]
         assert changed.calls == 1
 
     def test_unverified_legacy_lot_checkpoint_is_rebuilt(self, tmp_path):
@@ -807,7 +808,7 @@ class TestExtractLotsCheckpoint:
 
         lots = extract_lots([_make_window()], client, prompt_path, output_path)
 
-        assert [lot.lot_number for lot in lots] == [2]
+        assert [lot.lot_number for lot in lots] == ['2']
         assert client.calls == 1
         assert output_path.with_suffix(".meta.json").exists()
 
@@ -844,7 +845,7 @@ class TestExtractLotsCheckpoint:
         )
         lots = extract_lots([_make_window()], client, prompt_path, output_path)
 
-        assert [lot.lot_number for lot in lots] == [1]
+        assert [lot.lot_number for lot in lots] == ['1']
         assert client.calls == 1
 
     def test_failed_window_resumes_without_resending_finished_windows(self, tmp_path):
@@ -863,7 +864,7 @@ class TestExtractLotsCheckpoint:
         lots = extract_lots(windows, retry, prompt_path, output_path)
 
         assert retry.sent == [windows[1].label]
-        assert [lot.lot_number for lot in lots] == [0, 9, 18]
+        assert [lot.lot_number for lot in lots] == ['0', '9', '18']
         assert not output_path.with_suffix(".windows.json").exists()
 
     def test_saved_windows_are_ignored_when_provenance_changes(self, tmp_path):

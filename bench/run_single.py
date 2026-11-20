@@ -36,6 +36,7 @@ def main(argv=None):
     parser.add_argument("provider", choices=("openai", "openrouter"))
     parser.add_argument("model")
     parser.add_argument("--reasoning-effort", choices=("none", "low", "medium", "high", "xhigh", "max"))
+    parser.add_argument("--input-dir", type=Path, help="Directory containing the video checkpoints")
     args = parser.parse_args(argv)
     if not re.fullmatch(r"[A-Za-z0-9_-]{11}", args.video_id):
         parser.error("video_id must be an 11-character YouTube video identifier")
@@ -46,12 +47,14 @@ def main(argv=None):
 
     load_dotenv(ROOT / ".env")
     video_id = args.video_id
-    video_dir = ROOT / "output" / video_id
+    video_dir = args.input_dir or ROOT / "output" / video_id
     files = {
         "transcript": video_dir / f"transcript_{video_id}.json",
         "ocr": video_dir / f"ocr_results_{video_id}.json",
         "prompt": ROOT / "prompts" / "extraction.txt",
-        "verify_prompt": ROOT / "prompts" / "verify.txt",
+        "settlement_prompt": ROOT / "prompts" / "settlement.txt",
+        "settlement": ROOT / "pipeline" / "settlement.py",
+        "board_evidence": ROOT / "pipeline" / "board_evidence.py",
         "parser": ROOT / "pipeline" / "extractor.py",
         "lot_schema": ROOT / "models" / "lot.py",
         "aggregator": ROOT / "pipeline" / "aggregator.py",
@@ -109,7 +112,7 @@ def main(argv=None):
                 client,
                 prompt_path=files["prompt"],
                 output_path=lots_path,
-                verify_prompt_path=files["verify_prompt"],
+                settlement_prompt_path=files["settlement_prompt"],
             )
             summary.update(status="ok", lot_count=len(lots))
         except Exception as exc:

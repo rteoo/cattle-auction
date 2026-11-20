@@ -326,7 +326,7 @@ def _run_single_url(
         client=client,
         prompt_path=PROMPTS_DIR / "extraction.txt",
         output_path=run_dir / f"lots_{video_id}.json",
-        verify_prompt_path=PROMPTS_DIR / "verify.txt",
+        settlement_prompt_path=PROMPTS_DIR / "settlement.txt",
     )
     _done(t0)
 

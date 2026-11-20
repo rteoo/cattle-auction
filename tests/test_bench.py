@@ -27,7 +27,7 @@ def test_analysis_handles_lots_without_summary(tmp_path, monkeypatch, capsys):
         [{"lot_number": 1, "unit_price": 3000}],
     )
 
-    analyze.main()
+    analyze.main([])
 
     output = capsys.readouterr().out
     assert "SECTION 1" in output
@@ -105,7 +105,8 @@ def test_replay_resumes_only_the_same_effort_and_inputs(tmp_path, monkeypatch):
     transcript = video_dir / f"transcript_{video_id}.json"
     _write_json(transcript, [{"start": 0, "end": 30, "text": "Lote 42"}])
     _write_json(video_dir / f"ocr_results_{video_id}.json", {})
-    for name in ("prompts/extraction.txt", "prompts/verify.txt", "pipeline/extractor.py",
+    for name in ("prompts/extraction.txt", "prompts/settlement.txt", "pipeline/settlement.py",
+                 "pipeline/board_evidence.py", "pipeline/extractor.py",
                  "models/lot.py", "pipeline/aggregator.py", "pipeline/transcript_quality.py", "uv.lock"):
         path = tmp_path / name
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -158,7 +159,7 @@ def test_analysis_skips_reference_without_usable_prices(tmp_path, monkeypatch, c
         ],
     )
 
-    analyze.main()
+    analyze.main([])
 
     assert "R$" not in capsys.readouterr().out
 
@@ -181,3 +182,19 @@ def test_benchmark_converts_audio_when_only_the_video_is_cached(tmp_path, monkey
 
     assert len(commands) == 1
     assert commands[0][commands[0].index("-c:a") + 2] == str(tmp_path / "audio_vid.wav")
+
+
+def test_reference_comparison_keeps_all_printed_labels_distinct():
+    reference = [{"lot_number": label} for label in ("0", "00", "11A", "08B")]
+    result = [{"lot_number": label} for label in ("0", "00", "11A", "8")]
+    score = analyze.compare(reference, result)
+    assert score["matched"] == 3
+    assert score["missing_lot_numbers"] == ["08B"]
+    assert score["unmatched_model_lot_numbers"] == ["8"]
+
+
+def test_reference_comparison_bridges_only_unambiguous_legacy_ids():
+    reference = [{"lot_number": "0", "age_months": 15}, {"lot_number": "00", "age_months": 17}]
+    assert analyze.compare(reference, [{"lot_number": 0}])["matched"] == 0
+    score = analyze.compare(reference, [{"lot_number": 0, "age_months": 17}])
+    assert score["missing_lot_numbers"] == ["0"]

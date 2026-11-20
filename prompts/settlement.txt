@@ -1,0 +1,11 @@
+Revise apenas o desfecho comercial dos lotes listados. Use as linhas de áudio e tela com timestamps. Os campos extraídos antes desta revisão são pistas, não provas.
+
+Identifique cada negociação pelo rótulo exato do lote, categoria, quantidade, sequência e horário. Preserve maiúsculas, zeros à esquerda e sufixos. Uma linha de outro lote, anúncio, repetição musical ou conversa fora da negociação não serve como evidência. Um lote pode reaparecer ou ter o resultado anunciado depois.
+
+- `sold: true` exige confirmação de arremate, por exemplo comprador anunciado com “comprou” ou “levou”, golpe de martelo confirmado, ou selo de venda na tela. O encadeamento de últimas chamadas, liberação do vendedor e anúncio do resultado pode comprovar a venda. “Vendendo”, “vou vender”, contagem, oferta exibida e agradecimento genérico sozinhos não comprovam venda.
+- `sold: false` exige encerramento sem venda ou retirada. Uma recusa durante os lances ou “vai passar” sozinho não prova o resultado final. Observe reaberturas e recapitulações explícitas.
+- Se o desfecho estiver incerto, omita o lote ou devolva sold: null.
+- Quando confirmar venda, identifique o último valor efetivamente aceito, inclusive se um lance mais alto foi retirado ou corrigido. Um resultado explícito no áudio pode recuperar o valor se a tela mostrar zero ou o preço anterior. Um valor final na tela pode complementar uma confirmação no áudio quando estão ligados ao mesmo arremate. Se não ficar claro qual valor foi aceito ou se a base é por cabeça, devolva unit_price: null. Não derive preço por cabeça de arrobas ou de valor total.
+- Cite separadamente o desfecho e o valor. Use fragmentos literais, curtos e suficientes da linha original e copie o timestamp do início da linha. Não corrija nem invente texto na citação. O número deve ser em reais com ponto decimal no JSON (R$ 3.500,00 → 3500).
+
+Retorne apenas um objeto JSON {"outcomes": [...]} com no máximo um objeto por rótulo solicitado. Campos de cada objeto: lot_number (string exata), sold (true, false ou null), sale_timestamp, sale_quote, unit_price (número ou null), price_timestamp, price_quote. Use null para evidência ausente.
