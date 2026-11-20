@@ -2,6 +2,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
@@ -22,6 +23,20 @@ _YOUTUBE_HOSTS = {
 }
 _VIDEO_ID_RE = re.compile(r"[A-Za-z0-9_-]{11}\Z")
 _PATH_VIDEO_ID_RE = re.compile(r"[A-Za-z0-9_-]+\Z")
+_JS_RUNTIMES = ("deno", "node")
+
+
+def _youtube_dl_options() -> dict:
+    # yt-dlp selects the highest-priority supported runtime available on PATH.
+    return {"quiet": True, "js_runtimes": {name: {} for name in _JS_RUNTIMES}}
+
+
+def yt_dlp_command() -> list[str]:
+    """Launch the locked yt-dlp with the same runtimes as metadata lookup."""
+    command = [sys.executable, "-m", "yt_dlp", "--no-remote-components", "--no-js-runtimes"]
+    for runtime in _JS_RUNTIMES:
+        command.extend(["--js-runtimes", runtime])
+    return command
 
 
 def get_video_id(url: str) -> str:
@@ -43,7 +58,7 @@ def get_video_id(url: str) -> str:
             raise ValueError("Short YouTube URL contains an invalid video ID path.")
         return _validate_video_id(candidate)
     # Fallback: ask yt-dlp
-    with yt_dlp.YoutubeDL({"quiet": True}) as ydl:
+    with yt_dlp.YoutubeDL(_youtube_dl_options()) as ydl:
         info = ydl.extract_info(url, download=False)
         return _validate_video_id(info["id"])
 
@@ -98,7 +113,7 @@ def get_video_info(url: str, output_dir: Path, video_id: str) -> dict:
             return cached
         print("  Video info cache is unreadable, fetching again.")
 
-    with yt_dlp.YoutubeDL({"quiet": True}) as ydl:
+    with yt_dlp.YoutubeDL(_youtube_dl_options()) as ydl:
         info = ydl.extract_info(url, download=False)
 
     result = {
@@ -119,12 +134,9 @@ def download_audio(url: str, output_dir: Path, video_id: str) -> Path:
     source_path = _find_audio_source(output_dir, video_id)
 
     if source_path is None:
-        # Use the CLI directly so --remote-components is guaranteed to be passed.
-        # The Python API doesn't reliably forward newer flags like this one.
         subprocess.run(
             [
-                "yt-dlp",
-                "--remote-components", "ejs:github",
+                *yt_dlp_command(),
                 "--force-overwrites",
                 "-f", "ba[ext=m4a]/ba",
                 "-o", str(output_dir / f"audio_source_{video_id}.%(ext)s"),
@@ -193,8 +205,7 @@ def download_ocr_video(
     )
     subprocess.run(
         [
-            "yt-dlp",
-            "--remote-components", "ejs:github",
+            *yt_dlp_command(),
             "--force-overwrites",
             "-f", format_selector,
             "-o", str(video_path),

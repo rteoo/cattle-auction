@@ -38,7 +38,7 @@ def test_download_audio_uses_audio_only_format_before_wav_conversion(monkeypatch
 
     def fake_run(cmd, check):
         calls.append(cmd)
-        if cmd[0] == "yt-dlp":
+        if cmd[:3] == [sys.executable, "-m", "yt_dlp"]:
             (tmp_path / "audio_source_vid.m4a").write_text("audio", encoding="utf-8")
         elif cmd[0] == "ffmpeg":
             assert Path(cmd[cmd.index("-i") + 1]).exists()
@@ -54,7 +54,7 @@ def test_download_audio_uses_audio_only_format_before_wav_conversion(monkeypatch
     )
 
     assert audio_path == tmp_path / "audio_vid.wav"
-    assert calls[0][0] == "yt-dlp"
+    assert calls[0][:3] == [sys.executable, "-m", "yt_dlp"]
     assert calls[0][calls[0].index("-f") + 1] == "ba[ext=m4a]/ba"
     assert "bestvideo" not in calls[0]
     assert calls[1][0] == "ffmpeg"
@@ -78,7 +78,7 @@ def test_download_ocr_video_defaults_to_480p(monkeypatch, tmp_path):
     )
 
     assert video_path == tmp_path / "video_ocr_vid_480p.mp4"
-    assert calls[0][0] == "yt-dlp"
+    assert calls[0][:3] == [sys.executable, "-m", "yt_dlp"]
     assert "height<=480" in calls[0][calls[0].index("-f") + 1]
 
 
@@ -187,8 +187,8 @@ def test_corrupt_video_info_cache_is_fetched_again(monkeypatch, tmp_path):
     (tmp_path / "video_info_vid.json").write_text('{"title": "Leil', encoding="utf-8")
 
     class FakeYDL:
-        def __init__(self, *args, **kwargs):
-            pass
+        def __init__(self, options):
+            assert options["js_runtimes"] == {"deno": {}, "node": {}}
 
         def __enter__(self):
             return self
@@ -204,3 +204,12 @@ def test_corrupt_video_info_cache_is_fetched_again(monkeypatch, tmp_path):
     info = downloader.get_video_info("https://www.youtube.com/watch?v=vid", tmp_path, "vid")
 
     assert info == {"title": "Leilão Nelore", "description": "", "duration": 3600}
+
+
+def test_cli_uses_metadata_runtimes_and_only_installed_components():
+    command = downloader.yt_dlp_command()
+    cli_runtimes = [command[i + 1] for i, arg in enumerate(command) if arg == "--js-runtimes"]
+    assert cli_runtimes == list(downloader._youtube_dl_options()["js_runtimes"])
+    assert command.index("--no-js-runtimes") < command.index("--js-runtimes")
+    assert "--no-remote-components" in command
+    assert "--remote-components" not in command

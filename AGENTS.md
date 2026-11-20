@@ -45,6 +45,9 @@ uv sync --frozen --extra local --no-install-project  # optional, Apple Silicon M
 
 Host prerequisites (user-installed; inspect availability before running the pipeline):
 
+YouTube uses Deno 2.3+ or Node.js 22+ on `PATH`. The `yt-dlp[default]` dependency
+locks the matching EJS scripts for metadata and downloads.
+
 ```bash
 brew install ffmpeg deno
 brew install whisper-cpp                    # only for --transcriber cpp

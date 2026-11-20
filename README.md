@@ -41,9 +41,12 @@ summary table, together with the run's estimated cost.
 ## Quick start
 
 cattle-auction runs from source; there is no packaged release. It needs
-Python 3.11 or later, [uv](https://docs.astral.sh/uv/), `ffmpeg`, and
-[Deno 2.3.0 or newer](https://github.com/yt-dlp/yt-dlp/wiki/EJS) for YouTube
-downloads. The upstream OCR package declares support through Python 3.12.
+Python 3.11 or later, [uv](https://docs.astral.sh/uv/), `ffmpeg`, and a
+[YouTube JavaScript runtime](https://github.com/yt-dlp/yt-dlp/wiki/EJS).
+Put Deno 2.3+ or Node.js 22+ on `PATH`. yt-dlp prefers Deno and can use Node.js
+when Deno is unavailable or unsupported. The locked Python dependencies include
+the matching yt-dlp EJS scripts. The upstream OCR package declares support
+through Python 3.12.
 On macOS, the locked OCR stack requires Apple Silicon and macOS 14 or newer.
 
 ```bash
