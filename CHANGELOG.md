@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.0.0] — 2026-11-20
+
+### Breaking change
+
+- New JSON exports write `lot_number` as a string. This preserves the exact lot label, including leading zeros and letter suffixes. For example, `"0"`, `"00"`, `"11A"`, and `"08B"` are distinct. Existing numeric checkpoints can still be read. Update consumers that require an integer before upgrading.
+
+### Extraction and reliability
+
+- Check OCR lot labels against nearby auction-board markers without requiring a fixed screen layout. The locked OCR engine is RapidOCR 1.4.4.
+- Recheck uncertain sale status and hammer prices against local transcript and OCR evidence. Preserve unknown values when the evidence is insufficient.
+- Improve window validation and benchmark reporting so missing evidence and rejected rows can be audited.
+- Use GPT-6 Luna with medium reasoning by default for OpenAI extraction.
+- Use the locked yt-dlp EJS dependency and supported JavaScript runtime for YouTube downloads.
+
 ## [1.3.2] — 2026-05-13
 
 Batch workflow release focused on faster multi-video processing and richer comparison output.
