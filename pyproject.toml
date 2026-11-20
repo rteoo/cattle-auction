@@ -4,7 +4,7 @@ version = "1.4.0"
 description = "Extract lot data from Brazilian cattle auction videos"
 requires-python = ">=3.11"
 dependencies = [
-    "yt-dlp>=2026.10.26",
+    "yt-dlp[default]>=2026.10.26",
     "openai>=3.52.0",
     "groq>=1.7.0",
     "pydantic>=2.14.3",

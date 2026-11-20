@@ -40,8 +40,7 @@ def download_small(url: str, output_dir: Path, video_id: str) -> tuple[Path, Pat
     if not video_path.exists():
         subprocess.run(
             [
-                "yt-dlp",
-                "--remote-components", "ejs:github",
+                *downloader.yt_dlp_command(),
                 "-o", str(video_path),
                 "-f", "bestvideo[height<=480][ext=mp4]+bestaudio[ext=m4a]/best[height<=480][ext=mp4]/best",
                 "--merge-output-format", "mp4",
