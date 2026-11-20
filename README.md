@@ -134,7 +134,8 @@ uv run --frozen python main.py --batch-file links.txt --batch-name maio-2026 [OP
 | `--screenshot-interval` | `30` | Seconds between frames in interval sampling |
 | `--safety-interval` | `60` | Scene sampling: seconds between safety-grid frames added to detections |
 | `--ocr-video-height` | `480` | OCR video height: `480` or `720` |
-| `--output-dir` | `output` | Base directory for all generated files |
+| `--output-dir` | `output` | Base directory for JSON and media outputs |
+| `--sqlite-db` | off | Save completed results to a dedicated SQLite file |
 | `--no-resume` | off | Recompute derived checkpoints; downloaded media is kept |
 | `--metadata / --no-metadata` | on | Show auction metadata |
 | `--summary / --no-summary` | on | Show summary statistics |
@@ -211,6 +212,47 @@ when there is no confirmed sale. When the per-head price and head count are know
 `price_needs_review` and consult `raw_price`, `price_basis`, and the evidence
 timestamps when present. The CLI excludes flagged prices from confirmed-price
 statistics.
+
+## SQLite price history
+
+SQLite history requires a source checkout with this feature or a release newer
+than v2.0.0.
+
+Use the same `--sqlite-db` file across runs to build a local history. This works
+with single videos and batches. JSON output and checkpoints are still written.
+
+```bash
+uv run --frozen python main.py --batch-file links.txt --sqlite-db output/auction-history.sqlite3
+```
+
+SQLite stores auction metadata in `auctions` and individual records in `lots`.
+A successful rerun replaces that video's records in one transaction. Other
+videos keep their records. If a database write fails, the CLI reports a failure
+and the JSON result remains available. Rerun with the same options and checkpoint
+directory to retry the write using compatible checkpoints.
+
+The `confirmed_prices` view includes sold lots with a positive per-head price
+and no price-review flag. Prices are integer BRL cents. Complete auction dates
+are available as ISO dates in `auction_date`. Partial dates remain in
+`date_reported`. City and auctioneer names are stored as extracted, so spelling
+variants can appear as separate groups.
+
+For example, calculate the average lot price per head in reais by month, city,
+auctioneer, and cattle category:
+
+```sql
+SELECT substr(auction_date, 1, 7) AS month,
+       city, auctioneer, category,
+       COUNT(*) AS lots,
+       ROUND(AVG(unit_price_cents) / 100.0, 2) AS avg_brl_per_head
+FROM confirmed_prices
+WHERE auction_date IS NOT NULL
+GROUP BY month, city, auctioneer, category
+ORDER BY month, city, auctioneer, category;
+```
+
+On Docker, use a path inside the persistent output mount so the history stays
+available when the container is replaced.
 
 ## Models and cost
 

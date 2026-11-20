@@ -5,12 +5,18 @@ transcript gate is applied, that sampling flags reach the screenshot stage,
 and that the reported cost reflects what this run actually spent.
 """
 import json
+import sqlite3
 import sys
+from contextlib import closing
 from pathlib import Path
+
+import pytest
+from click.testing import CliRunner
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import main
+from models.lot import AuctionResult, Lot
 from pipeline.screenshotter import Screenshot
 from pipeline.transcriber import Segment
 
@@ -175,3 +181,66 @@ def test_stale_transcript_provenance_is_billed_as_a_fresh_groq_run(monkeypatch, 
     result = _run(tmp_path)
 
     assert result.cost_usd == round(0.04 + 0.10 + 0.25, 6)
+
+
+def test_cli_database_is_opt_in_and_keeps_json_output(monkeypatch, tmp_path):
+    _install_stubs(monkeypatch, tmp_path, segments=[])
+    monkeypatch.setattr(
+        main.extractor, "extract_lots",
+        lambda *a, **k: [Lot(lot_number="08B", sold=True, unit_price="3.100,50")],
+    )
+    output = tmp_path / "output"
+    db_path = output / "history.sqlite3"
+    args = ["https://youtu.be/vid", "--output-dir", str(output), "--no-table", "--no-summary"]
+    runner = CliRunner()
+
+    result = runner.invoke(main.cli, args)
+    assert result.exit_code == 0, result.output
+    assert not db_path.exists()
+
+    result = runner.invoke(main.cli, [*args, "--sqlite-db", str(db_path)])
+    assert result.exit_code == 0, result.output
+    assert json.loads((output / "vid" / "result_vid.json").read_text())["lots"][0]["lot_number"] == "08B"
+    with closing(sqlite3.connect(db_path)) as db:
+        assert db.execute("SELECT lot_number, unit_price_cents FROM confirmed_prices").fetchall() == [
+            ("08B", 310050),
+        ]
+
+
+def test_batch_stores_successful_results_and_reports_failed_writes(monkeypatch, tmp_path):
+    def fake_run(url, **kwargs):
+        video_id = url.rsplit("/", 1)[-1]
+        lot = Lot(lot_number="00", sold=True, unit_price=3000)
+        lots = [lot, lot] if video_id == "bad" else [lot]
+        return AuctionResult(video_id=video_id, video_url=url, total_lots=len(lots), lots=lots)
+
+    monkeypatch.setattr(main, "_run_single_url", fake_run)
+    db_path = tmp_path / "history.sqlite3"
+    result = CliRunner().invoke(main.cli, [
+        "https://youtu.be/before", "https://youtu.be/bad", "https://youtu.be/after",
+        "--sqlite-db", str(db_path), "--output-dir", str(tmp_path / "output"),
+        "--batch-name", "history",
+    ])
+
+    assert result.exit_code == 1
+    report = json.loads((tmp_path / "output" / "batches" / "history" / "batch_summary.json").read_text())
+    assert report["totals"]["successful"] == 2
+    assert report["totals"]["failed"] == 1
+    with closing(sqlite3.connect(db_path)) as db:
+        assert db.execute("SELECT video_id FROM auctions ORDER BY video_id").fetchall() == [
+            ("after",), ("before",),
+        ]
+
+
+def test_invalid_history_path_fails_before_a_paid_run(monkeypatch, tmp_path):
+    db_path = tmp_path / "invalid.sqlite3"
+    db_path.write_text("not a database")
+
+    def unexpected_run(*args, **kwargs):
+        pytest.fail("The pipeline should not run with an invalid history database")
+
+    monkeypatch.setattr(main, "_run_single_url", unexpected_run)
+    result = CliRunner().invoke(main.cli, ["https://youtu.be/vid", "--sqlite-db", str(db_path)])
+
+    assert result.exit_code == 1
+    assert "Could not open SQLite history" in result.output

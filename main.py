@@ -13,7 +13,7 @@ from rich.console import Console
 from rich.table import Table
 
 from models.lot import AuctionResult
-from pipeline import aggregator, costs, downloader, extractor, ocr, screenshotter
+from pipeline import aggregator, costs, downloader, extractor, history, ocr, screenshotter
 from pipeline import transcriber as transcriber_mod
 from pipeline.checkpoint import write_json
 from pipeline.transcript_quality import check_transcript
@@ -56,6 +56,11 @@ PROMPTS_DIR = Path(__file__).parent / "prompts"
     default="output",
     show_default=True,
     help="Base directory for all outputs.",
+)
+@click.option(
+    "--sqlite-db",
+    type=click.Path(dir_okay=False, resolve_path=True, path_type=Path),
+    help="Save completed results to a dedicated SQLite history file.",
 )
 @click.option(
     "--transcriber",
@@ -145,6 +150,7 @@ def cli(
     stop_on_error,
     provider,
     output_dir,
+    sqlite_db,
     transcriber,
     whisper_model,
     cpp_model,
@@ -161,6 +167,12 @@ def cli(
     batch_urls = _load_batch_urls(urls, batch_file)
     if not batch_urls:
         raise click.UsageError("Provide at least one YouTube URL or use --batch-file.")
+
+    if sqlite_db is not None:
+        try:
+            history.initialize(sqlite_db)
+        except history.HistoryError as exc:
+            raise click.ClickException(str(exc)) from exc
 
     is_batch = batch_file is not None or len(batch_urls) > 1
     if is_batch:
@@ -181,6 +193,7 @@ def cli(
             show_table=show_table,
             batch_name=batch_name,
             stop_on_error=stop_on_error,
+            sqlite_db=sqlite_db,
         )
         if report["totals"]["failed"]:
             raise click.ClickException(
@@ -188,7 +201,7 @@ def cli(
             )
         return
 
-    _run_single_url(
+    result = _run_single_url(
         batch_urls[0],
         provider=provider,
         output_dir=output_dir,
@@ -204,6 +217,12 @@ def cli(
         show_summary=show_summary,
         show_table=show_table,
     )
+    if sqlite_db is not None:
+        try:
+            history.save(sqlite_db, result)
+        except history.HistoryError as exc:
+            raise click.ClickException(str(exc)) from exc
+        console.print(f"  SQLite history: {sqlite_db}", markup=False)
 
 
 def _run_single_url(
@@ -431,6 +450,7 @@ def _run_batch(
     stop_on_error,
     frame_sampling="interval",
     safety_interval=60,
+    sqlite_db=None,
 ):
     output_root = Path(output_dir)
     report_dir = _batch_report_dir(output_root, batch_name)
@@ -463,6 +483,8 @@ def _run_batch(
                 show_summary=show_summary,
                 show_table=show_table,
             )
+            if sqlite_db is not None:
+                history.save(sqlite_db, result)
         except Exception as exc:
             console.print(f"  [red]Failed:[/red] {exc}\n")
             items.append(_batch_failure_item(index, url, exc))
